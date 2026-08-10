@@ -2,8 +2,11 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
-        Title="Aspen Optimizer" Height="720" Width="1300">
+        Icon="/Assets/logo2.ico"
+        Title="MPL Optimizer" Height="720" Width="1300">
 
+    
+    
     <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -13,7 +16,7 @@
         <!-- Barra superior tipo pestañas -->
         <TabControl Grid.Row="0" Margin="0,0,0,10">
 
-            <TabItem Header="Archivo">
+            <TabItem Header="File">
                 <StackPanel Orientation="Horizontal" Margin="10">
                     <Button x:Name="BtnFind"
                             Content="Find"
@@ -26,26 +29,23 @@
                              Height="28"
                              Margin="10,0,10,0"
                              IsReadOnly="True"/>
-
-                    <Button x:Name="BtnClose"
-                            Content="Close"
-                            Width="70"
-                            Height="28"
-                            Click="BtnClose_Click"/>
-                </StackPanel>
-            </TabItem>
-
-            <TabItem Header="Simulación">
-                <StackPanel Orientation="Horizontal" Margin="10">
                     <Button x:Name="BtnRead"
-                            Content="Read Aspen Tree"
-                            Width="130"
+                             Content="Read Aspen Tree"
+                             Width="130"
+                             Height="28"
+                            Margin="10,0,10,0"
+                             Click="BtnRead_Click"/>
+
+                    <Button x:Name="BtnClean"
+                            Content="Clean Workspace"
+                            Width="100"
                             Height="28"
-                            Click="BtnRead_Click"/>
+                            Click="BtnClean_Click"/>
                 </StackPanel>
             </TabItem>
 
-            <TabItem Header="Variables">
+
+            <TabItem Header="Variables" HorizontalAlignment="Right" Margin="0,-2,-2,0" Width="63">
                 <StackPanel Orientation="Horizontal" Margin="10">
                     <Button x:Name="BtnAddSelected"
                             Content="Add Selected"
@@ -62,7 +62,7 @@
                 </StackPanel>
             </TabItem>
 
-            <TabItem Header="Objetivos">
+            <TabItem Header="Objectives">
                 <StackPanel Orientation="Horizontal" Margin="10">
                     <Button x:Name="BtnAddObjective"
                             Content="Add Objective"
@@ -88,7 +88,7 @@
                 </StackPanel>
             </TabItem>
 
-            <TabItem Header="Restricciones">
+            <TabItem Header="Constraints">
                 <StackPanel Orientation="Horizontal" Margin="10">
                     <Button x:Name="BtnAddConstraint"
                             Content="Add Constraint"
@@ -105,21 +105,70 @@
                 </StackPanel>
             </TabItem>
 
-            <TabItem Header="Optimización">
-                <StackPanel Orientation="Horizontal" Margin="10">
-                    <Button x:Name="BtnRunOptimization"
+            <TabItem Header="Optimization">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,10">
+
+                        <TextBlock Text="Algorithm:"
+                       VerticalAlignment="Center"
+                       Margin="0,0,5,0"/>
+
+                        <ComboBox x:Name="AlgorithmComboBox"
+                      Width="260"
+                      Height="28"
+                      SelectionChanged="AlgorithmComboBox_SelectionChanged"/>
+
+                        <Button x:Name="BtnRunOptimization"
                             Content="Run Optimization"
                             Width="140"
-                            Height="28"/>
-
-                    <Button x:Name="BtnStopOptimization"
-                            Content="Stop"
-                            Width="80"
                             Height="28"
-                            Margin="10,0,0,0"/>
-                </StackPanel>
-            </TabItem>
+                            Margin="15,0,0,0"
+                            IsEnabled="False"
+                            Click="BtnRunOptimization_Click"/>
 
+                        <TextBlock x:Name="TxtOptimizationStatus"
+                                   Text="Status: Select an algorithm."
+                                   VerticalAlignment="Center"
+                                   Margin="20,0,0,0"/>
+                        
+                        <TextBlock x:Name="TxtFilename"
+                               Text="Filename:"
+                               VerticalAlignment="Center"
+                               Margin="20,0,0,0"/>
+
+                        <TextBox x:Name="TxtFilenamePath"
+                             Text="{Binding OutputFile, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             Width="300"
+                             Height="28"
+                             Margin="10,0,10,0"/>
+                        
+                        <Button x:Name="BtnExportResults"
+                                Content="Export Results"
+                                Width="120"
+                                Height="28"
+                                Margin="10,0,0,0"
+                                IsEnabled="False"
+                                Click="BtnExportResults_Click"/>
+
+
+                    </StackPanel>
+
+                    <GroupBox Header="Algorithm Hyperparameters" Grid.Row="1">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            
+                            <UniformGrid x:Name="HyperparameterPanel"
+                                         Columns="4"
+                                         Margin="10"/>
+                        </ScrollViewer>
+                    </GroupBox>
+
+                </Grid>
+            </TabItem>
         </TabControl>
 
         <!-- Panel principal -->
@@ -145,32 +194,60 @@
 
                 <Button x:Name="BtnAddSelectedMiddle"
                         Content="Add →"
-                        Width="110"
+                        Width="130"
                         Height="32"
                         Margin="0,0,0,10"
                         Click="BtnAddSelected_Click"/>
 
                 <Button x:Name="BtnRemoveSelectedMiddle"
                         Content="← Remove"
-                        Width="110"
+                        Width="130"
                         Height="32"
                         Margin="0,0,0,10"
                         Click="BtnRemoveSelected_Click"/>
 
                 <Button x:Name="BtnAddManualInput"
-                        Content="Add Manual Input"
-                        Width="110"
+                        Content="Add Manual Input →"
+                        Width="130"
                         Height="32"
                         Margin="0,0,0,10"
                         Click="BtnAddManualInput_Click"/>
 
                 <Button x:Name="BtnAddManualOutput"
-                    Content="Add Manual Output"
-                    Width="110"
-                    Height="32"
-                    Margin="0,0,0,10"
-                    Click="BtnAddManualOutput_Click"/>
-                
+                        Content="Add Manual Output →"
+                        Width="130"
+                        Height="32"
+                        Margin="0,0,0,10"
+                        Click="BtnAddManualOutput_Click"/>
+
+                <Button x:Name="BtnAddObjectiveFunction"
+                        Content="Add Objective"
+                        Width="130"
+                        Height="32"
+                        Margin="0,0,0,10"
+                        Click="BtnAddObjectiveFunction_Panel_Click"/>
+
+                <Button x:Name="BtnRemoveObjectiveFunction"
+                        Content="Remove Objective"
+                        Width="130"
+                        Height="32"
+                        Margin="0,0,0,10"
+                        Click="BtnRemoveObjectiveFunction_Panel_Click"/>
+
+                <Button x:Name="BtnAddConstraint_Panel"
+                        Content="Add Constraint →"
+                        Width="130"
+                        Height="28"
+                        Margin="0,0,0,10"
+                        Click="BtnAddConstraint_Click"/>
+
+                <Button x:Name="BtnRemoveConstraint_Panel"
+                        Content="← Remove Constraint"
+                        Width="130"
+                        Height="28"
+                        Margin="0,0,0,10"
+                        Click="BtnRemoveConstraint_Click"/>
+
             </StackPanel>
 
             <!-- Panel derecho -->
@@ -186,19 +263,21 @@
                         <DataGrid.Columns>
 
                             <DataGridTextColumn Header="Tag"
-                                                Binding="{Binding Tag}"
-                                                Width="60"
-                                                IsReadOnly="True"/>
-                            
-                            <DataGridTextColumn Header="Path"
-                                                Binding="{Binding Path}"
+                                                Binding="{Binding Tag, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                 Width="*"
                                                 IsReadOnly="True"/>
 
+                            <DataGridTextColumn Header="Path"
+                                                Binding="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="*"/>
+
                             <DataGridTextColumn Header="Current Value"
-                                                Binding="{Binding Value}"
-                                                Width="110"
-                                                IsReadOnly="True"/>
+                                                Binding="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="*"/>
+
+                            <DataGridTextColumn Header="Restart Value"
+                                                Binding="{Binding Restar, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="*"/>
 
                             <DataGridComboBoxColumn Header="Variable Type"
                                                     SelectedItemBinding="{Binding VariableKind, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -236,14 +315,12 @@
                                                 Width="120"/>
 
                             <DataGridTextColumn Header="Path"
-                                                Binding="{Binding Path}"
-                                                Width="*"
-                                                IsReadOnly="True"/>
+                                                Binding="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged }"  
+                                                Width="*"/>
 
                             <DataGridTextColumn Header="Current Value"
-                                                Binding="{Binding Value}"
-                                                Width="120"
-                                                IsReadOnly="True"/>
+                                                Binding="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                Width="120"/>
 
                             <DataGridTextColumn Header="Type"
                                                 Binding="{Binding Type}"

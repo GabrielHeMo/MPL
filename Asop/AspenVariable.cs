@@ -25,12 +25,15 @@ namespace Asop.Models
         public string Path { get; set; } = "";
         public string Value { get; set; } = "";
         public string Type { get; set; } = "";
+
+        public string OutputFile { get; set; } = "";  // Archivo de salida para variables de salida
         public bool Editable { get; set; }
 
         // Nuevos campos para optimización
         public string VariableKind { get; set; } = "Continuous";
-        public double LowerBound { get; set; }
-        public double UpperBound { get; set; }
+        public string LowerBound { get; set; } = "";
+        public string UpperBound { get; set; } = "";
+        public string Restar { get; set; } = "";
     }
 
     public class OptimizationConstraint

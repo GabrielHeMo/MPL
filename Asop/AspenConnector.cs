@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Windows;
 
 
 namespace Asop.Aspen
@@ -47,6 +48,9 @@ namespace Asop.Aspen
             }
         }
 
+
+
+
         public List<AspenVariable> ReadTree()
         {
             List<AspenVariable> variables = new List<AspenVariable>();
@@ -60,18 +64,6 @@ namespace Asop.Aspen
             return variables;
         }
 
-        public List<AspenVariable> ReadTreeAllNumeric()
-        {
-            List<AspenVariable> variables = new List<AspenVariable>();
-
-            if (aspenApp == null)
-                return variables;
-
-            ReadBranch(@"\Data\Streams", variables);
-            ReadBranch(@"\Data\Blocks", variables);
-
-            return variables;
-        }
 
         private void ReadBranch(string branchPath, List<AspenVariable> variables)
         {
@@ -227,6 +219,29 @@ namespace Asop.Aspen
                 aspenApp = null;
             }
         }
+
+        public bool RunSimulation()
+        {
+            if (aspenApp == null)
+                return false;
+
+            try
+            {
+                aspenApp.Run2();
+
+                while (aspenApp.Engine.IsRunning)
+                {
+                    System.Threading.Thread.Sleep(200);
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
 
 
     }
