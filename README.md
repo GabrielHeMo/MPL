@@ -1,6 +1,6 @@
 # MPL Optimizer
 <p align="center">
-  <img src="logo.svg" width="300" alt="MPL Optimizer Logo">
+  <img src="logo.svg" width="500" alt="MPL Optimizer Logo">
 </p>
 
 <h1 align="center">MPL Optimizer</h1>
