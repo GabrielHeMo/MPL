@@ -1,5 +1,13 @@
 # MPL Optimizer
+<p align="center">
+  <img src="assets/mpl-logo.png" width="220" alt="MPL Optimizer Logo">
+</p>
 
+<h1 align="center">MPL Optimizer</h1>
+
+<p align="center">
+  Modular Process Learning Optimizer
+</p>
 **MPL (Modular Process Learning Optimizer)** is a Windows desktop application for process simulation and optimization.
 
 MPL provides a graphical interface for defining decision variables, objective functions, constraints, optimization algorithms, and algorithm hyperparameters. It can communicate with Aspen Plus simulations and use Python-based optimization algorithms to evaluate and optimize process models.
