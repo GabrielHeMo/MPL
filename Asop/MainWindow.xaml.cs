@@ -579,8 +579,8 @@ namespace Asop
                 if (continuousAlgorithmsAvailable)
                     AlgorithmComboBox.Items.Add("Trust Region Bayesian Optimization");
                 TxtProblemType.Text = "Single-objective";
-                if (morphBoAvailable)
-                    AlgorithmComboBox.Items.Add("MORPHBO");
+                //if (morphBoAvailable)
+                //    AlgorithmComboBox.Items.Add("MORPHBO");
             }
             else
             {
@@ -596,8 +596,8 @@ namespace Asop
                 AlgorithmComboBox.Items.Add("SMS-EMOA");
                 AlgorithmComboBox.Items.Add("MOPSO-CD");
                 AlgorithmComboBox.Items.Add("CMOPSO");
-                if (morphBoAvailable)
-                    AlgorithmComboBox.Items.Add("MORPHBO");
+                //if (morphBoAvailable)
+                //    AlgorithmComboBox.Items.Add("MORPHBO");
 
                 if (continuousAlgorithmsAvailable)
                     AlgorithmComboBox.Items.Add("Vanilla M.O. Bayesian Optimization");
