@@ -87,7 +87,7 @@ namespace Asop
         {
             OpenFileDialog dialog = new OpenFileDialog();
 
-            dialog.Title = "Selecciona un archivo Aspen";
+            dialog.Title = "Select an Aspen file";
             dialog.Filter = "Aspen Backup Files (*.bkp)|*.bkp";
 
             if (dialog.ShowDialog() == true)
@@ -95,7 +95,7 @@ namespace Asop
                 selectedAspenFile = dialog.FileName;
                 TxtFilePath.Text = selectedAspenFile;
 
-                MessageBox.Show("Archivo seleccionado correctamente.");
+                MessageBox.Show("File successfully selected.");
             }
         }
 
@@ -105,7 +105,7 @@ namespace Asop
         {
             if (string.IsNullOrEmpty(selectedAspenFile))
             {
-                MessageBox.Show("Primero selecciona un archivo Aspen.");
+                MessageBox.Show("First, select an Aspen file..");
                 return;
             }
 
