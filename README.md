@@ -30,7 +30,7 @@ MPL provides a graphical interface for defining decision variables, objective fu
 
 MPL includes or is being developed to support several optimization approaches, including:
 
-### Single-objective optimization
+### Single-objective optimization (Some adapted from Pymoo)
 
 - Genetic Algorithm (GA)
 - Differential Evolution (DE)
@@ -38,11 +38,12 @@ MPL includes or is being developed to support several optimization approaches, i
 - CMA-ES
 - Nelder-Mead
 - Pattern Search
+- Success-Based Optimization Algorithm (SBOA)  DOI: 10.1016/j.compchemeng.2024.108987
 - Bayesian Optimization
 - Trust-Region Bayesian Optimization
 - Mixed-variable Bayesian optimization methods
 
-### Multi-objective optimization
+### Multi-objective optimization (Some adapted from Pymoo)
 
 - NSGA-II
 - NSGA-III
