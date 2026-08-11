@@ -115,7 +115,7 @@ namespace Asop
 
             if (!success)
             {
-                MessageBox.Show("No se pudo abrir Aspen.");
+                MessageBox.Show("Could not open Aspen.");
                 BtnRead.IsEnabled = true;
                 return;
             }
@@ -224,7 +224,7 @@ namespace Asop
         {
             if (selectedVariable == null)
             {
-                MessageBox.Show("Selecciona una variable numérica del árbol.");
+                MessageBox.Show("Select a numeric variable from the tree.");
                 return;
             }
 
@@ -234,7 +234,7 @@ namespace Asop
 
                 if (alreadyExists)
                 {
-                    MessageBox.Show("Esta variable ya fue agregada como parámetro de entrada.");
+                    MessageBox.Show("This variable has already been added as an input parameter.");
                     return;
                 }
 
@@ -267,7 +267,7 @@ namespace Asop
                 UpdateInputTags();
                 ValidateOptimizationSetup();
 
-                MessageBox.Show("Variable agregada como parámetro de entrada.");
+                MessageBox.Show("Variable added as an input parameter.");
                 return;
             }
 
@@ -277,7 +277,7 @@ namespace Asop
 
                 if (alreadyExists)
                 {
-                    MessageBox.Show("Esta variable ya fue agregada como función objetivo.");
+                    MessageBox.Show("This variable has already been added as an objective function..");
                     return;
                 }
 
@@ -293,11 +293,11 @@ namespace Asop
 
                 outputObjectives.Add(newOutput);
                 ValidateOptimizationSetup();
-                MessageBox.Show("Variable agregada como función objetivo.");
+                MessageBox.Show("Aggregated variable as an objective function.");
                 return;
             }
 
-            MessageBox.Show("La variable seleccionada no es Input ni Output.");
+            MessageBox.Show("The selected variable is neither Input nor Output.");
         }
 
 
@@ -333,7 +333,7 @@ namespace Asop
                 return;
             }
 
-            MessageBox.Show("Selecciona una variable de Input Parameters o Output Objectives para remover.");
+            MessageBox.Show("Select a variable from Input Parameters or Output Objectives to remove.");
         }
 
 
@@ -365,7 +365,7 @@ namespace Asop
 
                     if (ub <= lb)
                     {
-                        MessageBox.Show($"Upper Bound debe ser mayor que Lower Bound para:\n{variable.Path}");
+                        MessageBox.Show($"Upper Bound must be greater than Lower Bound for:\n{variable.Path}");
                         return;
                     }
 
@@ -373,7 +373,7 @@ namespace Asop
                     {
                         if (lb % 1 != 0 || ub % 1 != 0)
                         {
-                            MessageBox.Show($"Para variables discretas, Lower Bound y Upper Bound deben ser enteros:\n{variable.Path}");
+                            MessageBox.Show($"For discrete variables, the Lower Bound and Upper Bound must be integers.:\n{variable.Path}");
                             return;
                         }
                     }
@@ -405,7 +405,7 @@ namespace Asop
                 return;
             }
 
-            MessageBox.Show("Selecciona una función objetivo para remover.");
+            MessageBox.Show("Select an objective function to remove.");
         }
 
         // FUNCIONES DEL PANEL
@@ -431,7 +431,7 @@ namespace Asop
                 return;
             }
 
-            MessageBox.Show("Selecciona una función objetivo para remover.");
+            MessageBox.Show("Select an objective function to remove.");
         }
 
         private void ObjectiveFunctionsGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
@@ -463,7 +463,7 @@ namespace Asop
                 return;
             }
 
-            MessageBox.Show("Selecciona una restricción para remover.");
+            MessageBox.Show("Select a restriction to remove..");
         }
 
         private void UpdateProblemType()
@@ -1273,7 +1273,7 @@ namespace Asop
 
             if (!BtnRunOptimization.IsEnabled)
             {
-                MessageBox.Show("La configuración de optimización está incompleta.");
+                MessageBox.Show("The optimization configuration is incomplete..");
                 return;
             }
 
@@ -1575,19 +1575,19 @@ namespace Asop
             {
                 if (string.IsNullOrWhiteSpace(selectedAspenFile))
                 {
-                    MessageBox.Show("Primero selecciona una simulación de Aspen.");
+                    MessageBox.Show("First, select an Aspen simulation.");
                     return;
                 }
 
                 if (!File.Exists(selectedAspenFile))
                 {
-                    MessageBox.Show("No se encontró el archivo de Aspen seleccionado.");
+                    MessageBox.Show("The selected Aspen file was not found.");
                     return;
                 }
 
                 if (string.IsNullOrWhiteSpace(lastResultsPath) || !File.Exists(lastResultsPath))
                 {
-                    MessageBox.Show("No hay resultados para exportar. Primero corre la optimización.");
+                    MessageBox.Show("There are no results to export. Run the optimization first.");
                     return;
                 }
 
@@ -1595,7 +1595,7 @@ namespace Asop
 
                 if (string.IsNullOrWhiteSpace(userFileName))
                 {
-                    MessageBox.Show("Escribe un nombre para el archivo de resultados.");
+                    MessageBox.Show("Enter a name for the results file.");
                     return;
                 }
 
@@ -1612,7 +1612,7 @@ namespace Asop
 
                 if (string.IsNullOrWhiteSpace(aspenFolder))
                 {
-                    MessageBox.Show("No se pudo obtener la carpeta de la simulación Aspen.");
+                    MessageBox.Show("The Aspen simulation folder could not be retrieved..");
                     return;
                 }
 
@@ -1621,8 +1621,8 @@ namespace Asop
                 if (File.Exists(exportPath))
                 {
                     MessageBoxResult overwrite = MessageBox.Show(
-                        "Ya existe un archivo con ese nombre.\n\n¿Deseas reemplazarlo?",
-                        "Confirmar reemplazo",
+                        "A file with that name already exists.\n\nDo you want to replace it?",
+                        "Confirm replacement",
                         MessageBoxButton.YesNo,
                         MessageBoxImage.Warning
                     );
@@ -1640,11 +1640,11 @@ namespace Asop
                                 new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)
                                  );
 
-                MessageBox.Show("Resultados exportados correctamente en:\n\n" + exportPath);
+                MessageBox.Show("Results exported successfully in:\n\n" + exportPath);
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error al exportar resultados:\n\n" + ex.Message);
+                MessageBox.Show("Error exporting results:\n\n" + ex.Message);
             }
         }
     }
