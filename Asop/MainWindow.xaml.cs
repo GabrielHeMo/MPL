@@ -82,6 +82,24 @@ namespace Asop
             LeftVariableColumn.ItemsSource = InputTags;
         }
 
+
+        // Problema de Json file
+        private static string GetMplDataDirectory()
+        {
+            string localAppData = Environment.GetFolderPath(
+                Environment.SpecialFolder.LocalApplicationData
+            );
+
+            string mplDirectory = Path.Combine(
+                localAppData,
+                "MPL Optimizer"
+            );
+
+            Directory.CreateDirectory(mplDirectory);
+
+            return mplDirectory;
+        }
+
         // BOTON QUE PERMITE ENCONTRAR RUTA DE ASPEN
         private void BtnFind_Click(object sender, RoutedEventArgs e)
         {
@@ -1328,8 +1346,26 @@ namespace Asop
                         }).ToList()
                 };
 
-                string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "optimization_config.json");
-                string resultsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "optimization_results.json");
+                //string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "optimization_config.json");
+                //string resultsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "optimization_results.json");
+
+                string dataDirectory = GetMplDataDirectory();
+
+                string configPath = Path.Combine(
+                    dataDirectory,
+                    "optimization_config.json"
+                );
+
+                string resultsPath = Path.Combine(
+                    dataDirectory,
+                    "optimization_results.json"
+                );
+
+                if (File.Exists(resultsPath))
+                {
+                    File.Delete(resultsPath);
+                }
+
 
                 string json = JsonConvert.SerializeObject(optimizationData, Formatting.Indented);
                 File.WriteAllText(configPath, json);
