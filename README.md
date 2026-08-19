@@ -39,9 +39,8 @@ MPL includes or is being developed to support several optimization approaches, i
 - Nelder-Mead
 - Pattern Search
 - Success-Based Optimization Algorithm (SBOA)  DOI: 10.1016/j.compchemeng.2024.108987
-- Bayesian Optimization
-- Trust-Region Bayesian Optimization
-- Mixed-variable Bayesian optimization methods
+- Vanilla Bayesian Optimization
+- Trust-Region Bayesian Optimization 
 
 ### Multi-objective optimization (Some adapted from Pymoo)
 
@@ -51,8 +50,7 @@ MPL includes or is being developed to support several optimization approaches, i
 - MOEA/D
 - SMS-EMOA
 - RVEA
-- Multi-objective Bayesian Optimization
-- Mixed-variable Bayesian optimization methods
+- Multi-Objective Bayesian Optimization 
 
 The available algorithms may change as development continues.
 
@@ -95,26 +93,21 @@ If you want to modify MPL or build the application yourself:
 
 1. Clone this repository.
 2. Open the solution in Visual Studio.
-3. Restore the required NuGet packages.
-4. Build the solution in `Release` mode.
-5. Make sure the Python optimization components are available.
-6. If Aspen-based functionality is required, make sure Aspen Plus is installed and licensed.
+3. Build the solution in `Release` mode.
+4. Make sure the Python optimization components are available.
+5. If Aspen-based functionality is required, make sure Aspen Plus is installed and licensed.
 
 ## Python Optimization Engine
 
-MPL uses Python for several optimization algorithms and numerical routines.
-
+MPL uses Python for several optimization algorithms.
 The Python component contains the optimization runner and algorithm implementations used by the WPF application.
-
-Depending on the build/distribution method, Python and its dependencies may either be packaged with MPL or configured separately for development.
-
 Typical Python dependencies include packages for:
 
-- Numerical computing
-- Data processing
-- Evolutionary optimization
-- Bayesian optimization
-- Aspen COM communication
+- Numerical computing (math)
+- Data processing (Numpy)
+- Evolutionary optimization (Pymoo)
+- Bayesian optimization (Botorch, Pytorch)
+- Aspen COM communication 
 
 ## Application Architecture
 
