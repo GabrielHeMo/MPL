@@ -33,6 +33,9 @@ import numpy as np
 import time
 import math
 
+from .status import emit_status
+from Evaluation.remote_aspen_problem_functions import CSharpAspenEvaluator
+
 RUN_STATUS_DIR = r"\Data\Results Summary\Run-Status\Output\UOSSTAT2"
 FAILED_RUN_STATUS_VALUES = {9, 10}
 PENALTY_VALUE = 1e10
@@ -40,9 +43,9 @@ PENALTY_VALUE = 1e10
 
 
 class SBOA():
-    def __init__(self, config, aspen):
+    def __init__(self, config):
         self.config = config
-        self.aspen = aspen
+        self.evaluator = CSharpAspenEvaluator(config)
         self.history_records = []
 
     def preprocess_x(self, config, x):
@@ -62,32 +65,6 @@ class SBOA():
         return x_processed
         
 
-    def check_aspen_convergence(self, aspen):
-        """
-        Verifica si Aspen terminó correctamente usando el nodo Run-Status.
-
-        En tu segundo código usabas UOSSTAT2 y penalizabas status 9 o 10.
-        Aquí se conserva la misma idea, pero devolviendo (ok, status, message).
-        """
-        try:
-            node = aspen.Tree.FindNode(RUN_STATUS_DIR)
-        except Exception as e:
-            return False, None, f"No se pudo leer Run-Status: {e}"
-
-        if node is None:
-            return False, None, f"No existe el nodo Run-Status: {RUN_STATUS_DIR}"
-
-        try:
-            status = int(node.Value)
-        except Exception:
-            return False, None, f"Run-Status no tiene un valor entero válido: {getattr(node, 'Value', None)}"
-
-        if status in FAILED_RUN_STATUS_VALUES:
-            return False, status, f"Aspen no convergió. Run-Status = {status}"
-
-        return True, status, f"Aspen convergió. Run-Status = {status}"
-
-
     def penalty_result(self, config, x, reason, violations=None, run_status=None):
         x = self.preprocess_x(config, x)
         outputs = {output_var["tag"]: None for output_var in config.get("outputs", [])}
@@ -103,75 +80,6 @@ class SBOA():
         }
  
     
-    def set_aspen_variable(self,aspen, path, value):
-        node = aspen.Tree.FindNode(path)
-
-        if node is None:
-            raise RuntimeError(f"The variable Aspen was not found.: {path}")
-
-        node.Value = value
-
-
-    def get_aspen_variable(self, aspen, path):
-        node = aspen.Tree.FindNode(path)
-        if node is None:
-            raise RuntimeError(f"Aspen exit not found: {path}")
-        if node.Value is None:
-            raise RuntimeError(f"The Aspen output has no value: {path}")
-        value = float(node.Value)
-        if not np.isfinite(value):
-            raise RuntimeError(f"The Aspen output is not finite: {path} = {value}")
-        return value
-
-
-    def update_aspen(self, aspen, config):
-        """
-        Actualiza Aspen con los restart_values antes de evaluar un nuevo punto.
-        restart_values viene dentro de config["inputs"].
-        """
-
-        for input_var in config["inputs"]:
-            path = input_var["path"]
-
-            restart_value = input_var.get("restart_values", None)
-
-            if restart_value is None or str(restart_value).strip() == "":
-                restart_value = input_var.get("current_value", None)
-
-            if restart_value is None or str(restart_value).strip() == "":
-                raise RuntimeError(
-                    f"No hay restart_value para {input_var.get('tag', path)}"
-                )
-
-            value = float(str(restart_value).replace(",", "."))
-
-            variable_type = input_var.get("variable_type", "Continuous")
-
-            if variable_type.lower() == "discrete":
-                value = round(value)
-
-            self.set_aspen_variable(aspen, path, value)
-
-    def run_aspen(self, aspen):
-        aspen.Run2()
-
-        try:
-            while aspen.Engine.IsRunning:
-                time.sleep(0.2)
-        except Exception:
-            time.sleep(2)
-
-
-            
-    def reinit_aspen(self, aspen):
-        try:
-            aspen.Reinit()
-        except Exception:
-            pass
-
-    # ---------------------------------------------------------
-    # Restricciones
-    # ---------------------------------------------------------
     def input_context(self, config, x):
         """
         Construye un diccionario tipo {'x1': valor, 'x2': valor, ...}
@@ -313,85 +221,19 @@ class SBOA():
         return len(violations) == 0, violations
 
 
-    def evaluate_point(self, aspen, config, x):
+    def evaluate_point(self, config, x):
+        """Evaluate one SBOA candidate through the C# -> Aspen JSONL bridge."""
         x = self.preprocess_x(config, x)
-        # Primero se checa si se cumplen las restricciones
-        ok_constraints, violations = self.check_input_constraints(config, x)
-
-        if not ok_constraints:
-            return self.penalty_result(
-                config=config,
-                x=x,
-                reason="Punto rechazado antes de correr Aspen porque no cumple restricciones de entrada.",
-                violations=violations
-            )
-
         try:
-            # Ahora añadimos los valores de restar a las variables para asegurar que si se actualizan no lance error aspen
-            self.update_aspen(aspen , config)
-
-            # Actualizar con valores reales sugeridos
-            for input_var, value in zip(config["inputs"], x):
-                self.set_aspen_variable(aspen, input_var["path"], value)
-            # Se corre aspen
-            self.run_aspen(aspen)
-            # Checar estatus de convergencia de Aspen
-            converged, run_status, status_message = self.check_aspen_convergence(aspen)
-            if not converged:
-                self.reinit_aspen(aspen)
-                return self.penalty_result(
-                    config=config,
-                    x=x,
-                    reason=status_message,
-                    run_status=run_status
-                )
-
-            outputs = {}
-            for output_var in config["outputs"]:
-                outputs[output_var["tag"]] = self.get_aspen_variable(aspen, output_var["path"])
-
-            obj = config["objectives"][0]
-            expression = obj["expression"]
-
-            safe_globals = {"__builtins__": {}}
-            safe_locals = {
-                **outputs,
-                "abs": abs,
-                "min": min,
-                "max": max,
-                "round": round,
-                "math": math,
-                "np": np,
-            }
-            objective_value = float(eval(expression, safe_globals, safe_locals))
-
-            if obj["sense"].lower() == "maximize":
-                objective_value = -objective_value
-
-            if not np.isfinite(objective_value):
-                raise RuntimeError(f"La función objetivo no es finita: {objective_value}")
-
-            return {
-                "objective": objective_value,
-                "outputs": outputs,
-                "x": x,
-                "feasible": True,
-                "aspen_converged": True,
-                "run_status": run_status,
-                "message": status_message,
-                #"violations": []
-            }
-
+            return self.evaluator.evaluate_one(x)
         except Exception as e:
-            self.reinit_aspen(aspen)
             return self.penalty_result(
                 config=config,
                 x=x,
-                reason=f"Error al evaluar el punto en Aspen: {e}"
+                reason=f"Error requesting Aspen evaluation from C#: {e}",
             )
-
     def sboa_function(self, fobj, lb, ub, dim, pop_size=50, max_iter=1000,
-         Cp1=0.9, Cp2=0.55, seed=None):
+         Cp1=0.9, Cp2=0.55, seed=None, report_status=False):
         """Minimiza la funcion objetivo fobj mediante SBOA.
 
         Parametros
@@ -429,12 +271,34 @@ class SBOA():
         ub = np.broadcast_to(np.asarray(ub, dtype=float), (dim,)).copy()
 
         # Inicializacion (Eq. 2)
+        if report_status:
+            emit_status(
+                f"SBOA initial population: evaluating {pop_size} candidates.",
+                level="INFO",
+                progress=0,
+                stage="initial_design",
+                current=0,
+                total=pop_size,
+                algorithm="SBOA",
+            )
+
         X = lb + rng.random((pop_size, dim)) * (ub - lb)
         fitness = np.array([fobj(X[i]) for i in range(pop_size)])
 
         best_idx = int(np.argmin(fitness))
         best_pos = X[best_idx].copy()
         best_score = float(fitness[best_idx])
+
+        if report_status:
+            emit_status(
+                f"SBOA initial population completed. Best objective = {best_score:.6g}.",
+                level="PROGRESS",
+                progress=100.0 / max(1, max_iter + 1),
+                stage="initial_design",
+                current=pop_size,
+                total=pop_size,
+                algorithm="SBOA",
+            )
 
         history = np.empty(max_iter)
 
@@ -488,6 +352,17 @@ class SBOA():
 
             history[t] = best_score
 
+            if report_status:
+                emit_status(
+                    f"SBOA iteration {t + 1}/{max_iter} completed. Best objective = {best_score:.6g}.",
+                    level="PROGRESS",
+                    progress=100.0 * (t + 2) / max(1, max_iter + 1),
+                    stage="optimization",
+                    current=t + 1,
+                    total=max_iter,
+                    algorithm="SBOA",
+                )
+
         return best_pos, best_score, history
 
     def run(self):
@@ -499,8 +374,22 @@ class SBOA():
 
         hyper = self.config["hyperparameters"]
 
+        pop_size = int(hyper.get("pop_size", 30))
+        max_iter = int(hyper.get("max_iter", hyper.get("generations", 50)))
+        cp1 = float(hyper.get("Cp1", 0.9))
+        cp2 = float(hyper.get("Cp2", 0.55))
+        seed = int(hyper.get("seed", 1))
+
+        emit_status(
+            f"Starting SBOA: pop_size={pop_size}, iterations={max_iter}, Cp1={cp1}, Cp2={cp2}, seed={seed}.",
+            level="INFO",
+            progress=0,
+            stage="setup",
+            algorithm="SBOA",
+        )
+
         def fobj(x):
-            result = self.evaluate_point(self.aspen, self.config, x)
+            result = self.evaluate_point(self.config, x)
 
             x_used = result["x"]
             objective_value = float(result["objective"])
@@ -522,6 +411,16 @@ class SBOA():
             }
 
             history_records.append(record)
+
+            emit_status(
+                f"SBOA Aspen evaluation {record['evaluation']} completed: objective={objective_value:.6g}, "
+                f"converged={record['aspen_converged']}, feasible={record['feasible']}.",
+                level="PROGRESS" if record["aspen_converged"] else "WARNING",
+                stage="aspen_evaluation",
+                current=record["evaluation"],
+                log=False,
+                algorithm="SBOA",
+            )
             return objective_value
 
         best_pos, best_score, convergence = self.sboa_function(
@@ -529,11 +428,12 @@ class SBOA():
                                                         lb=lb,
                                                         ub=ub,
                                                         dim=dim,
-                                                        pop_size=int(hyper.get("pop_size", 30)),
-                                                        max_iter=int(hyper.get("max_iter", hyper.get("generations", 50))),
-                                                        Cp1=float(hyper.get("Cp1", 0.9)),
-                                                        Cp2=float(hyper.get("Cp2", 0.55)),
-                                                        seed=int(hyper.get("seed", 1))
+                                                        pop_size=pop_size,
+                                                        max_iter=max_iter,
+                                                        Cp1=cp1,
+                                                        Cp2=cp2,
+                                                        seed=seed,
+                                                        report_status=True
                                                     )
 
         valid_records = [
@@ -542,6 +442,13 @@ class SBOA():
         ]
 
         if len(valid_records) == 0:
+            emit_status(
+                "SBOA finished without any feasible Aspen-converged point.",
+                level="ERROR",
+                progress=100,
+                stage="finished",
+                algorithm="SBOA",
+            )
             return {
                 "status": "error",
                 "message": "SBOA terminó, pero ningún punto factible produjo una simulación Aspen convergida.",
@@ -553,6 +460,14 @@ class SBOA():
             }, history_records
 
         best_record = min(valid_records, key=lambda r: r["objective"])
+
+        emit_status(
+            f"SBOA finished successfully. Best objective = {float(best_record['objective']):.6g}.",
+            level="SUCCESS",
+            progress=100,
+            stage="finished",
+            algorithm="SBOA",
+        )
 
         return {
             "status": "success",

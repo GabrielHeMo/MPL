@@ -3,62 +3,234 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
         Icon="/Assets/logo2.ico"
-        Title="MPL Optimizer" Height="720" Width="1300">
+        Title="MPL Optimizer"
+        Width="1450"
+        Height="900"
+        MinWidth="1100"
+        MinHeight="720"
+        Background="#F4F7FB"
+        FontFamily="Segoe UI">
 
-    
-    
-    <Grid Margin="10">
+    <Window.Resources>
+        <SolidColorBrush x:Key="PrimaryBrush" Color="#2563EB"/>
+        <SolidColorBrush x:Key="PrimaryHoverBrush" Color="#1D4ED8"/>
+        <SolidColorBrush x:Key="DarkBrush" Color="#0F172A"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#1E293B"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#64748B"/>
+        <SolidColorBrush x:Key="BorderBrushSoft" Color="#D8E0EA"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="SuccessBrush" Color="#15803D"/>
+        <SolidColorBrush x:Key="WarningBrush" Color="#B45309"/>
+        <SolidColorBrush x:Key="ErrorBrush" Color="#B91C1C"/>
+
+        <Style TargetType="Button">
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="14,4"/>
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#EFF6FF"/>
+                    <Setter Property="BorderBrush" Value="#93C5FD"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.45"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Background" Value="{StaticResource PrimaryBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource PrimaryHoverBrush}"/>
+                    <Setter Property="BorderBrush" Value="{StaticResource PrimaryHoverBrush}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Foreground" Value="{StaticResource ErrorBrush}"/>
+            <Setter Property="BorderBrush" Value="#FCA5A5"/>
+            <Setter Property="Background" Value="#FEF2F2"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Background" Value="White"/>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="MinHeight" Value="30"/>
+            <Setter Property="Padding" Value="6,2"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+        </Style>
+
+        <Style TargetType="GroupBox">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="Padding" Value="8"/>
+        </Style>
+
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+        </Style>
+
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="14,7"/>
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#E8EDF3"/>
+            <Setter Property="RowBackground" Value="White"/>
+            <Setter Property="AlternatingRowBackground" Value="#F8FAFC"/>
+            <Setter Property="HeadersVisibility" Value="Column"/>
+            <Setter Property="CanUserResizeRows" Value="False"/>
+            <Setter Property="RowHeaderWidth" Value="0"/>
+            <Setter Property="SelectionMode" Value="Single"/>
+            <Setter Property="SelectionUnit" Value="FullRow"/>
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#F1F5F9"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="8,7"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="7"/>
+            <RowDefinition Height="210" MinHeight="120"/>
         </Grid.RowDefinitions>
 
-        <!-- Barra superior tipo pestañas -->
-        <TabControl Grid.Row="0" Margin="0,0,0,10">
+        <!-- Application header -->
+        <Border Grid.Row="0"
+                Background="{StaticResource DarkBrush}"
+                CornerRadius="12"
+                Padding="18,12"
+                Margin="0,0,0,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
+                <StackPanel>
+                    <TextBlock Text="MPL Optimizer"
+                               Foreground="White"
+                               FontSize="24"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="Modular Process Learning - Optimizer"
+                               Foreground="#CBD5E1"
+                               FontSize="12"
+                               Margin="0,2,0,0"/>
+                </StackPanel>
+
+                <Border Grid.Column="1"
+                        Background="#1E293B"
+                        BorderBrush="#334155"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="14,8"
+                        VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Problem: " Foreground="#94A3B8"/>
+                        <TextBlock x:Name="TxtProblemType"
+                                   Text="Not defined yet"
+                                   Foreground="White"
+                                   FontWeight="SemiBold"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Command ribbon -->
+        <TabControl Grid.Row="1" Margin="0,0,0,12">
             <TabItem Header="File">
-                <StackPanel Orientation="Horizontal" Margin="10">
+                <Grid Margin="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
                     <Button x:Name="BtnFind"
-                            Content="Find"
-                            Width="70"
-                            Height="28"
-                            Click="BtnFind_Click"/>
+                            Grid.Column="0"
+                            Content="Select Aspen File"
+                            Click="BtnFind_Click" />
 
                     <TextBox x:Name="TxtFilePath"
-                             Width="600"
-                             Height="28"
+                             Grid.Column="1"
                              Margin="10,0,10,0"
-                             IsReadOnly="True"/>
+                             IsReadOnly="True"
+                             VerticalContentAlignment="Center" Grid.ColumnSpan="2"/>
+
                     <Button x:Name="BtnRead"
-                             Content="Read Aspen Tree"
-                             Width="130"
-                             Height="28"
+                            Grid.Column="2"
+                            Content="Read Aspen Tree"
+                            Style="{StaticResource PrimaryButton}"
                             Margin="10,0,10,0"
-                             Click="BtnRead_Click"/>
+                            Click="BtnRead_Click" HorizontalAlignment="Center" Width="120"/>
 
                     <Button x:Name="BtnClean"
+                            Grid.Column="3"
                             Content="Clean Workspace"
-                            Width="100"
-                            Height="28"
+                            Margin="10,0,10,0"
+                            Style="{StaticResource DangerButton}"
                             Click="BtnClean_Click"/>
-                </StackPanel>
+                </Grid>
             </TabItem>
 
-
-            <TabItem Header="Variables" HorizontalAlignment="Right" Margin="0,-2,-2,0" Width="63">
+            <TabItem Header="Variables">
                 <StackPanel Orientation="Horizontal" Margin="10">
                     <Button x:Name="BtnAddSelected"
-                            Content="Add Selected"
-                            Width="110"
-                            Height="28"
+                            Content="Add Selected →"
+                            Margin="0,0,10,0"
+                            Style="{StaticResource PrimaryButton}"
                             Click="BtnAddSelected_Click"/>
-
                     <Button x:Name="BtnRemoveSelected"
-                            Content="Remove Selected"
-                            Width="130"
-                            Height="28"
-                            Margin="10,0,0,0"
+                            Content="← Remove Selected"
+                            Margin="0,0,10,0"
                             Click="BtnRemoveSelected_Click"/>
+
+
+
+
+                    <Button x:Name="BtnAddManualInput"
+                            Content="Add Manual Input →"
+                            Margin="0,0,10,0"
+                            Width="150"
+                            Click="BtnAddManualInput_Click"/>
+                    <Button x:Name="BtnAddManualOutput"
+                            Content="Add Manual Output →"
+                            Margin="0,0,10,0"
+                            Click="BtnAddManualOutput_Click"/>
                 </StackPanel>
             </TabItem>
 
@@ -66,25 +238,12 @@
                 <StackPanel Orientation="Horizontal" Margin="10">
                     <Button x:Name="BtnAddObjective"
                             Content="Add Objective"
-                            Width="120"
-                            Height="28"
-                            Click="BtnAddObjective_Click"/>
-
+                            Margin="0,0,10,0"
+                            Style="{StaticResource PrimaryButton}"
+                            Click="BtnAddObjectiveFunction_Panel_Click"/>
                     <Button x:Name="BtnRemoveObjective"
                             Content="Remove Objective"
-                            Width="130"
-                            Height="28"
-                            Margin="10,0,0,0"
-                            Click="BtnRemoveObjective_Click"/>
-
-                    <TextBlock Text="Problem Type:"
-                               VerticalAlignment="Center"
-                               Margin="25,0,5,0"/>
-
-                    <TextBlock x:Name="TxtProblemType"
-                               Text="Single-objective"
-                               VerticalAlignment="Center"
-                               FontWeight="Bold"/>
+                            Click="BtnRemoveObjectiveFunction_Panel_Click"/>
                 </StackPanel>
             </TabItem>
 
@@ -92,196 +251,161 @@
                 <StackPanel Orientation="Horizontal" Margin="10">
                     <Button x:Name="BtnAddConstraint"
                             Content="Add Constraint"
-                            Width="130"
-                            Height="28"
+                            Margin="0,0,10,0"
+                            Style="{StaticResource PrimaryButton}"
                             Click="BtnAddConstraint_Click"/>
-
                     <Button x:Name="BtnRemoveConstraint"
                             Content="Remove Constraint"
-                            Width="140"
-                            Height="28"
-                            Margin="10,0,0,0"
                             Click="BtnRemoveConstraint_Click"/>
                 </StackPanel>
             </TabItem>
 
             <TabItem Header="Optimization">
                 <Grid Margin="10">
+
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
 
-                        <TextBlock Text="Algorithm:"
-                       VerticalAlignment="Center"
-                       Margin="0,0,5,0"/>
+                        <!-- Algorithm -->
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="260"/>
 
-                        <ComboBox x:Name="AlgorithmComboBox"
-                      Width="260"
-                      Height="28"
-                      SelectionChanged="AlgorithmComboBox_SelectionChanged"/>
+                        <!-- Espacio flexible / status -->
+                        <ColumnDefinition Width="*"/>
 
-                        <Button x:Name="BtnRunOptimization"
-                            Content="Run Optimization"
-                            Width="140"
-                            Height="28"
-                            Margin="15,0,0,0"
-                            IsEnabled="False"
-                            Click="BtnRunOptimization_Click"/>
+                        <!-- Output -->
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="260"/>
 
-                        <TextBlock x:Name="TxtOptimizationStatus"
-                                   Text="Status: Select an algorithm."
-                                   VerticalAlignment="Center"
-                                   Margin="20,0,0,0"/>
-                        
-                        <TextBlock x:Name="TxtFilename"
-                               Text="Filename:"
-                               VerticalAlignment="Center"
-                               Margin="20,0,0,0"/>
+                        <!-- Botones -->
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
 
-                        <TextBox x:Name="TxtFilenamePath"
-                             Text="{Binding OutputFile, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             Width="300"
-                             Height="28"
-                             Margin="10,0,10,0"/>
-                        
-                        <Button x:Name="BtnExportResults"
-                                Content="Export Results"
-                                Width="120"
-                                Height="28"
-                                Margin="10,0,0,0"
-                                IsEnabled="False"
-                                Click="BtnExportResults_Click"/>
+                    </Grid.ColumnDefinitions>
 
 
-                    </StackPanel>
+                    <!-- ALGORITHM -->
+                    <TextBlock Grid.Row="0"
+                   Grid.Column="0"
+                   Text="Algorithm"
+                   VerticalAlignment="Center"
+                   Margin="0,0,10,0"/>
 
-                    <GroupBox Header="Algorithm Hyperparameters" Grid.Row="1">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            
-                            <UniformGrid x:Name="HyperparameterPanel"
-                                         Columns="4"
-                                         Margin="10"/>
-                        </ScrollViewer>
-                    </GroupBox>
+                    <ComboBox x:Name="AlgorithmComboBox"
+                  Grid.Row="0"
+                  Grid.Column="1"
+                  SelectionChanged="AlgorithmComboBox_SelectionChanged"
+                  Margin="0,0,10,0"/>
+
+
+                    <!-- STATUS 
+                    <TextBlock x:Name="TxtOptimizationStatus"
+                   Grid.Row="0"
+                   Grid.Column="2"
+                   Text="Select an algorithm."
+                   Foreground="{StaticResource MutedBrush}"
+                   TextTrimming="CharacterEllipsis"
+                   VerticalAlignment="Center"
+                   Margin="5,0,20,0"/> -->
+
+
+                    <!-- OUTPUT FILE -->
+                    <TextBlock Grid.Row="0"
+                   Grid.Column="3"
+                   Text="Output filename"
+                   VerticalAlignment="Center"
+                   Margin="0,0,10,0"/>
+
+                    <TextBox x:Name="TxtFilenamePath"
+                 Grid.Row="0"
+                 Grid.Column="4"
+                 Text="{Binding OutputFile, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                 Margin="0,0,15,0"/>
+
+
+                    <!-- BUTTONS -->
+                    <Button x:Name="BtnRunOptimization"
+                Grid.Row="0"
+                Grid.Column="5"
+                Content="Run Optimization"
+                Margin="0,0,10,0"
+                IsEnabled="False"
+                Style="{StaticResource PrimaryButton}"
+                Click="BtnRunOptimization_Click"/>
+
+                    <Button x:Name="BtnExportResults"
+                Grid.Row="0"
+                Grid.Column="6"
+                Content="Export Results"
+                IsEnabled="False"
+                Click="BtnExportResults_Click"/>
 
                 </Grid>
             </TabItem>
+
+            <TabItem Header="Settings">
+                <GroupBox Grid.Row="1"
+                      Grid.Column="0"
+                      Grid.ColumnSpan="7"
+                      Header="Algorithm Hyperparameters"
+                      Margin="0,10,0,0"
+                      MaxHeight="190">
+                      <ScrollViewer VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                          <UniformGrid x:Name="HyperparameterPanel"
+                          Columns="4"
+                          Margin="4"/>
+                      </ScrollViewer>
+                </GroupBox>
+            </TabItem>
         </TabControl>
 
-        <!-- Panel principal -->
-        <Grid Grid.Row="1">
+        <!-- Main workspace -->
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2*"/>
+                <ColumnDefinition Width="2*" MinWidth="260"/>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="3.2*"/>
+                <ColumnDefinition Width="3.4*" MinWidth="520"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Aspen Tree -->
             <GroupBox Header="Aspen Tree"
                       Grid.Column="0"
                       Margin="0,0,10,0">
                 <TreeView x:Name="AspenTreeView"
+                          BorderThickness="1"
+                          Background="White"
                           SelectedItemChanged="AspenTreeView_SelectedItemChanged"/>
             </GroupBox>
 
-            <!-- Botones centrales -->
-            <StackPanel Grid.Column="1"
-                        VerticalAlignment="Center"
-                        Margin="10">
-
-                <Button x:Name="BtnAddSelectedMiddle"
-                        Content="Add →"
-                        Width="130"
-                        Height="32"
-                        Margin="0,0,0,10"
-                        Click="BtnAddSelected_Click"/>
-
-                <Button x:Name="BtnRemoveSelectedMiddle"
-                        Content="← Remove"
-                        Width="130"
-                        Height="32"
-                        Margin="0,0,0,10"
-                        Click="BtnRemoveSelected_Click"/>
-
-                <Button x:Name="BtnAddManualInput"
-                        Content="Add Manual Input →"
-                        Width="130"
-                        Height="32"
-                        Margin="0,0,0,10"
-                        Click="BtnAddManualInput_Click"/>
-
-                <Button x:Name="BtnAddManualOutput"
-                        Content="Add Manual Output →"
-                        Width="130"
-                        Height="32"
-                        Margin="0,0,0,10"
-                        Click="BtnAddManualOutput_Click"/>
-
-                <Button x:Name="BtnAddObjectiveFunction"
-                        Content="Add Objective"
-                        Width="130"
-                        Height="32"
-                        Margin="0,0,0,10"
-                        Click="BtnAddObjectiveFunction_Panel_Click"/>
-
-                <Button x:Name="BtnRemoveObjectiveFunction"
-                        Content="Remove Objective"
-                        Width="130"
-                        Height="32"
-                        Margin="0,0,0,10"
-                        Click="BtnRemoveObjectiveFunction_Panel_Click"/>
-
-                <Button x:Name="BtnAddConstraint_Panel"
-                        Content="Add Constraint →"
-                        Width="130"
-                        Height="28"
-                        Margin="0,0,0,10"
-                        Click="BtnAddConstraint_Click"/>
-
-                <Button x:Name="BtnRemoveConstraint_Panel"
-                        Content="← Remove Constraint"
-                        Width="130"
-                        Height="28"
-                        Margin="0,0,0,10"
-                        Click="BtnRemoveConstraint_Click"/>
-
-            </StackPanel>
-
-            <!-- Panel derecho -->
             <TabControl Grid.Column="2">
-
-                <!-- Inputs -->
                 <TabItem Header="Input Parameters">
                     <DataGrid x:Name="InputParametersGrid"
                               AutoGenerateColumns="False"
                               CanUserAddRows="False"
+                              AlternationCount="2"
+                              BorderThickness="1"
                               CellEditEnding="InputParametersGrid_CellEditEnding">
 
                         <DataGrid.Columns>
-
                             <DataGridTextColumn Header="Tag"
                                                 Binding="{Binding Tag, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="*"
+                                                Width="70"
                                                 IsReadOnly="True"/>
-
                             <DataGridTextColumn Header="Path"
                                                 Binding="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="*"/>
-
+                                                Width="2*"/>
                             <DataGridTextColumn Header="Current Value"
                                                 Binding="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="*"/>
-
+                                                Width="110"/>
                             <DataGridTextColumn Header="Restart Value"
                                                 Binding="{Binding Restar, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="*"/>
-
+                                                Width="110"/>
                             <DataGridComboBoxColumn Header="Variable Type"
                                                     SelectedItemBinding="{Binding VariableKind, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                    Width="130">
+                                                    Width="120">
                                 <DataGridComboBoxColumn.ItemsSource>
                                     <x:Array Type="{x:Type sys:String}">
                                         <sys:String>Continuous</sys:String>
@@ -289,65 +413,52 @@
                                     </x:Array>
                                 </DataGridComboBoxColumn.ItemsSource>
                             </DataGridComboBoxColumn>
-
                             <DataGridTextColumn Header="Lower Bound"
                                                 Binding="{Binding LowerBound, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="110"/>
-
+                                                Width="105"/>
                             <DataGridTextColumn Header="Upper Bound"
                                                 Binding="{Binding UpperBound, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="110"/>
-
+                                                Width="105"/>
                         </DataGrid.Columns>
                     </DataGrid>
                 </TabItem>
 
-                <!-- Outputs -->
                 <TabItem Header="Output Variables">
                     <DataGrid x:Name="OutputObjectivesGrid"
                               AutoGenerateColumns="False"
-                              CanUserAddRows="False">
-
+                              CanUserAddRows="False"
+                              AlternationCount="2">
                         <DataGrid.Columns>
-
                             <DataGridTextColumn Header="Tag"
                                                 Binding="{Binding Tag, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="120"/>
-
+                                                Width="90"/>
                             <DataGridTextColumn Header="Path"
-                                                Binding="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged }"  
+                                                Binding="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                 Width="*"/>
-
                             <DataGridTextColumn Header="Current Value"
                                                 Binding="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                 Width="120"/>
-
                             <DataGridTextColumn Header="Type"
                                                 Binding="{Binding Type}"
                                                 Width="90"
                                                 IsReadOnly="True"/>
-
                         </DataGrid.Columns>
                     </DataGrid>
                 </TabItem>
 
-                <!-- Objective Functions -->
                 <TabItem Header="Objective Functions">
                     <DataGrid x:Name="ObjectiveFunctionsGrid"
                               AutoGenerateColumns="False"
                               CanUserAddRows="False"
+                              AlternationCount="2"
                               CellEditEnding="ObjectiveFunctionsGrid_CellEditEnding">
-
                         <DataGrid.Columns>
-
                             <DataGridTextColumn Header="Name"
                                                 Binding="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                 Width="120"/>
-
                             <DataGridTextColumn Header="Expression"
                                                 Binding="{Binding Expression, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                 Width="*"/>
-
                             <DataGridComboBoxColumn Header="Sense"
                                                     SelectedItemBinding="{Binding Sense, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                     Width="120">
@@ -358,26 +469,20 @@
                                     </x:Array>
                                 </DataGridComboBoxColumn.ItemsSource>
                             </DataGridComboBoxColumn>
-
                         </DataGrid.Columns>
                     </DataGrid>
                 </TabItem>
 
-                <!-- Constraints -->
                 <TabItem Header="Constraints">
                     <DataGrid x:Name="ConstraintsGrid"
                               AutoGenerateColumns="False"
-                              CanUserAddRows="False">
-
+                              CanUserAddRows="False"
+                              AlternationCount="2">
                         <DataGrid.Columns>
-
-
-
                             <DataGridComboBoxColumn x:Name="LeftVariableColumn"
                                                     Header="Left Variable"
                                                     SelectedItemBinding="{Binding LeftSide, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                     Width="120"/>
-
                             <DataGridComboBoxColumn Header="Operator"
                                                     SelectedItemBinding="{Binding Operator, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                     Width="80">
@@ -391,21 +496,169 @@
                                     </x:Array>
                                 </DataGridComboBoxColumn.ItemsSource>
                             </DataGridComboBoxColumn>
-
                             <DataGridTextColumn Header="Right side"
                                                 Binding="{Binding RightSide, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                Width="80"/>
-
-
+                                                Width="100"/>
                             <DataGridTextColumn Header="Description"
                                                 Binding="{Binding Description, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                 Width="*"/>
-
                         </DataGrid.Columns>
                     </DataGrid>
                 </TabItem>
-
             </TabControl>
         </Grid>
+
+        <GridSplitter Grid.Row="3"
+                      Height="5"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Center"
+                      Background="#CBD5E1"
+                      ResizeDirection="Rows"
+                      ResizeBehavior="PreviousAndNext"
+                      Cursor="SizeNS"/>
+
+        <!-- Activity / progress panel -->
+        <Border Grid.Row="4"
+                Background="White"
+                BorderBrush="{StaticResource BorderBrushSoft}"
+                BorderThickness="1"
+                CornerRadius="10"
+                Padding="12,10">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Margin="0,0,0,7">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="Activity"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextBrush}"/>
+                        <Border Background="#DCFCE7"
+                                CornerRadius="8"
+                                Padding="7,2"
+                                Margin="10,0,0,0">
+                            <TextBlock Text="LIVE"
+                                       FontSize="10"
+                                       FontWeight="Bold"
+                                       Foreground="{StaticResource SuccessBrush}"/>
+                        </Border>
+                    </StackPanel>
+
+                    <Button x:Name="BtnClearLog"
+                            Grid.Column="1"
+                            Content="Clear Log"
+                            Height="28"
+                            Padding="12,2"
+                            Click="BtnClearLog_Click"/>
+                </Grid>
+
+                <ListBox x:Name="ActivityLogListBox"
+                         Grid.Row="1"
+                         ItemsSource="{Binding ActivityLog}"
+                         BorderThickness="1"
+                         Background="#FBFDFF"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Padding" Value="3,2"/>
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Focusable" Value="False"/>
+                            <Setter Property="IsHitTestVisible" Value="False"/>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="90"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding TimestampText}"
+                                           Foreground="#94A3B8"
+                                           FontFamily="Consolas"
+                                           FontSize="12"/>
+
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding Level}"
+                                           FontWeight="SemiBold"
+                                           FontSize="11">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Level}" Value="SUCCESS">
+                                                    <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Level}" Value="WARNING">
+                                                    <Setter Property="Foreground" Value="{StaticResource WarningBrush}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Level}" Value="ERROR">
+                                                    <Setter Property="Foreground" Value="{StaticResource ErrorBrush}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Level}" Value="PROGRESS">
+                                                    <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}"/>
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Level}" Value="PYTHON">
+                                                    <Setter Property="Foreground" Value="#7C3AED"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding Message}"
+                                           Foreground="{StaticResource TextBrush}"
+                                           TextWrapping="Wrap"
+                                           FontFamily="Consolas"
+                                           FontSize="12"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <Grid Grid.Row="2" Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="80"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock x:Name="TxtActivityStatus"
+                               Grid.Column="0"
+                               Text="Ready."
+                               Foreground="{StaticResource MutedBrush}"
+                               Margin="0,0,12,0"
+                               VerticalAlignment="Center"/>
+
+                    <ProgressBar x:Name="OptimizationProgressBar"
+                                 Grid.Column="1"
+                                 Height="8"
+                                 Minimum="0"
+                                 Maximum="100"
+                                 VerticalAlignment="Center" Grid.ColumnSpan="2" Margin="16,0,63,0"/>
+
+                    <TextBlock x:Name="TxtProgressPercent"
+                               Grid.Column="2"
+                               Text="0%"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontWeight="SemiBold"
+                               HorizontalAlignment="Right"
+                               VerticalAlignment="Center"/>
+                </Grid>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

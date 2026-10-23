@@ -5,7 +5,6 @@ import sys
 import time
 import traceback
 import numpy as np
-import win32com.client
 import csv
 import os 
 import math
@@ -23,7 +22,8 @@ from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.constraints import Interval
 from gpytorch.mlls import ExactMarginalLogLikelihood, SumMarginalLogLikelihood
 
-from bayesian_classes import VanillaBOBotorch 
+from .bayesian_classes import VanillaBOBotorch
+from .status import emit_status
 
 RUN_STATUS_DIR = r"\Data\Results Summary\Run-Status\Output\UOSSTAT2"
 FAILED_RUN_STATUS_VALUES = {9, 10}
@@ -58,7 +58,6 @@ except Exception:
 
 # =========================================================
 # Trust Region Bayesian Optimization (continuous variables)
-# Adaptado para Aspen desde bo(1).py, sin BioSTEAM ni VAE.
 # =========================================================
 
 @dataclass
@@ -96,8 +95,8 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
     application stores single-objective values in minimization form.
     """
 
-    def __init__(self, config, aspen):
-        super().__init__(config, aspen)
+    def __init__(self, config):
+        super().__init__(config)
         if not _only_continuous_config(config):
             raise RuntimeError(
                 "Trust Region Bayesian Optimization solo está habilitado para variables continuas. "
@@ -106,7 +105,12 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
 
         self.acqf_raw = str(self.hyper.get("acqf", self.hyper.get("aqf", "Log-EI"))).strip()
         self.acqf = self._normalize_acquisition_name(self.acqf_raw)
-        print(f"[TuRBO] Acquisition selected: raw='{self.acqf_raw}' normalized='{self.acqf}'", flush=True)
+        emit_status(
+            f"TuRBO acquisition selected: raw='{self.acqf_raw}', normalized='{self.acqf}'.",
+            level="INFO",
+            stage="setup",
+            algorithm="Trust Region Bayesian Optimization",
+        )
 
         self.batch_size = int(float(self.hyper.get("batch_size", 1)))
         self.n_init = int(float(self.hyper.get("n_init", max(2 * self.dim, 5))))
@@ -203,6 +207,16 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
             record = self.evaluate_and_store(x)
             record["turbo_iteration"] = 0
             record["candidate_source"] = "initial_sobol"
+            emit_status(
+                f"TuRBO initial design {len(self.history_records)}/{self.n_init} completed "
+                f"(Sobol). Objective = {float(record['objective']):.6g}.",
+                level="PROGRESS" if record.get("aspen_converged") else "WARNING",
+                progress=100.0 * len(self.history_records) / max(1, self.n_init + self.n_iter),
+                stage="initial_design",
+                current=len(self.history_records),
+                total=self.n_init,
+                algorithm="Trust Region Bayesian Optimization",
+            )
             if len(self.history_records) >= self.n_init:
                 break
 
@@ -214,6 +228,16 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
             record = self.evaluate_and_store(x)
             record["turbo_iteration"] = 0
             record["candidate_source"] = "initial_random"
+            emit_status(
+                f"TuRBO initial design {len(self.history_records)}/{self.n_init} completed "
+                f"(random fallback). Objective = {float(record['objective']):.6g}.",
+                level="PROGRESS" if record.get("aspen_converged") else "WARNING",
+                progress=100.0 * len(self.history_records) / max(1, self.n_init + self.n_iter),
+                stage="initial_design",
+                current=len(self.history_records),
+                total=self.n_init,
+                algorithm="Trust Region Bayesian Optimization",
+            )
 
     def get_valid_training_data(self):
         valid_records = [
@@ -362,7 +386,26 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
 
     def run(self):
         observed_keys = set()
+        total_steps = max(1, self.n_init + self.n_iter)
+
+        emit_status(
+            f"Starting Trust Region Bayesian Optimization: acquisition={self.acqf_raw}, "
+            f"n_init={self.n_init}, n_iter={self.n_iter}, batch_size={self.batch_size}, "
+            f"initial_length={self.length:.6g}, seed={self.seed}.",
+            level="INFO",
+            progress=0,
+            stage="setup",
+            algorithm="Trust Region Bayesian Optimization",
+        )
+
         self.initial_design(observed_keys)
+        emit_status(
+            f"TuRBO initial design finished with {len(self.history_records)} evaluations.",
+            level="INFO",
+            progress=100.0 * min(len(self.history_records), self.n_init) / total_steps,
+            stage="initial_design",
+            algorithm="Trust Region Bayesian Optimization",
+        )
 
         train_X, train_Y, valid_records = self.get_valid_training_data()
         best_value = float(train_Y.max().item()) if train_Y is not None and len(train_Y) else -float("inf")
@@ -382,27 +425,85 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
         )
 
         for iteration in range(self.n_iter):
+            iteration_number = iteration + 1
             train_X, train_Y, valid_records = self.get_valid_training_data()
+
+            emit_status(
+                f"TuRBO iteration {iteration_number}/{self.n_iter}: trust-region length={state.length:.6g}, "
+                f"valid observations={len(valid_records)}.",
+                level="INFO",
+                stage="trust_region",
+                current=iteration_number,
+                total=self.n_iter,
+                algorithm="Trust Region Bayesian Optimization",
+            )
+
             if train_X is None or len(valid_records) < 2:
+                emit_status(
+                    "TuRBO does not yet have enough valid observations to fit the GP; using a random candidate.",
+                    level="WARNING",
+                    stage="candidate",
+                    algorithm="Trust Region Bayesian Optimization",
+                )
                 x_next = self.sample_random_point(observed_keys)
                 if x_next is None:
                     break
                 observed_keys.add(self.point_key(x_next))
                 record = self.evaluate_and_store(x_next)
-                record["turbo_iteration"] = int(iteration + 1)
+                record["turbo_iteration"] = iteration_number
                 record["trust_region_length"] = float(state.length)
                 record["candidate_source"] = "fallback_random"
+                old_length = state.length
                 if record.get("feasible") and np.isfinite(record.get("objective", np.nan)):
                     y_next = torch.tensor([[-float(record["objective"])]], dtype=torch.double)
                     state = self.update_state(state, y_next)
+                if state.length != old_length:
+                    action = "expanded" if state.length > old_length else "shrunk"
+                    emit_status(
+                        f"TuRBO trust region {action}: {old_length:.6g} -> {state.length:.6g}.",
+                        level="INFO",
+                        stage="trust_region",
+                        algorithm="Trust Region Bayesian Optimization",
+                    )
+                completed = self.n_init + iteration_number
+                emit_status(
+                    f"TuRBO iteration {iteration_number}/{self.n_iter} completed by fallback sampling. "
+                    f"Objective = {float(record['objective']):.6g}.",
+                    level="PROGRESS",
+                    progress=100.0 * completed / total_steps,
+                    stage="optimization",
+                    current=iteration_number,
+                    total=self.n_iter,
+                    algorithm="Trust Region Bayesian Optimization",
+                )
                 continue
 
+            emit_status(
+                f"Fitting TuRBO Gaussian Process with {len(valid_records)} valid observations...",
+                level="INFO",
+                stage="gp_fit",
+                algorithm="Trust Region Bayesian Optimization",
+                log=False,
+            )
             model = self.build_model(train_X, train_Y)
 
             try:
+                emit_status(
+                    f"Selecting TuRBO candidate with {self.acqf_raw} inside the current trust region...",
+                    level="INFO",
+                    stage="acquisition",
+                    algorithm="Trust Region Bayesian Optimization",
+                    log=False,
+                )
                 X_next_norm, tr_lb, tr_ub = self.generate_batch(state, model, train_X, train_Y, iteration=iteration)
                 X_next_np = X_next_norm.detach().cpu().numpy().reshape(-1, self.dim)
             except Exception as e:
+                emit_status(
+                    f"TuRBO acquisition failed for raw='{self.acqf_raw}', normalized='{self.acqf}': {e}",
+                    level="ERROR",
+                    stage="acquisition",
+                    algorithm="Trust Region Bayesian Optimization",
+                )
                 raise RuntimeError(
                     f"Error en TuRBO acquisition. raw='{self.acqf_raw}', normalized='{self.acqf}'. "
                     f"Detalle: {e}"
@@ -414,6 +515,13 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
                 x_candidate = self.round_to_valid_x(self.denormalize_x(xn))
                 key = self.point_key(x_candidate)
                 if key in observed_keys or not self.satisfies_input_constraints(x_candidate):
+                    emit_status(
+                        "TuRBO candidate was repeated or invalid; searching for a replacement inside the trust region.",
+                        level="INFO",
+                        stage="candidate",
+                        algorithm="Trust Region Bayesian Optimization",
+                        log=False,
+                    )
                     x_candidate = self.sample_random_point(observed_keys, tr_lb, tr_ub)
                     if x_candidate is None:
                         x_candidate = self.sample_random_point(observed_keys)
@@ -423,7 +531,7 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
                 key = self.point_key(x_candidate)
                 observed_keys.add(key)
                 record = self.evaluate_and_store(x_candidate)
-                record["turbo_iteration"] = int(iteration + 1)
+                record["turbo_iteration"] = iteration_number
                 record["trust_region_length"] = float(state.length)
                 record["candidate_source"] = getattr(self, "last_candidate_source", None)
                 record["acq_value"] = getattr(self, "last_acq_value", None)
@@ -436,6 +544,7 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
                 else:
                     y_values.append(-PENALTY_VALUE)
 
+            old_length = state.length
             if evaluated_any and len(y_values) > 0:
                 state = self.update_state(state, torch.tensor(y_values, dtype=torch.double).reshape(-1, 1))
             else:
@@ -444,7 +553,36 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
                     state.length *= state.shrink_factor
                     state.failure_counter = 0
 
+            if state.length != old_length:
+                action = "expanded" if state.length > old_length else "shrunk"
+                emit_status(
+                    f"TuRBO trust region {action}: {old_length:.6g} -> {state.length:.6g}.",
+                    level="INFO",
+                    stage="trust_region",
+                    algorithm="Trust Region Bayesian Optimization",
+                )
+
+            current_valid = self.get_valid_training_data()[2]
+            best_objective = min((r["objective"] for r in current_valid), default=float("inf"))
+            completed = self.n_init + iteration_number
+            emit_status(
+                f"TuRBO iteration {iteration_number}/{self.n_iter} completed. "
+                f"Best objective = {float(best_objective):.6g}; trust-region length={state.length:.6g}.",
+                level="PROGRESS",
+                progress=100.0 * completed / total_steps,
+                stage="optimization",
+                current=iteration_number,
+                total=self.n_iter,
+                algorithm="Trust Region Bayesian Optimization",
+            )
+
             if state.restart_triggered:
+                emit_status(
+                    "TuRBO restart condition triggered because the trust region became smaller than length_min.",
+                    level="WARNING",
+                    stage="trust_region",
+                    algorithm="Trust Region Bayesian Optimization",
+                )
                 break
 
         valid_records = [
@@ -453,6 +591,13 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
         ]
 
         if len(valid_records) == 0:
+            emit_status(
+                "Trust Region Bayesian Optimization finished without any feasible Aspen-converged point.",
+                level="ERROR",
+                progress=100,
+                stage="finished",
+                algorithm="Trust Region Bayesian Optimization",
+            )
             return {
                 "status": "error",
                 "message": "Trust Region Bayesian Optimization terminó, pero ningún punto factible produjo una simulación Aspen convergida.",
@@ -466,6 +611,14 @@ class TrustRegionBOBotorch(VanillaBOBotorch):
             }, self.history_records
 
         best_record = min(valid_records, key=lambda r: r["objective"])
+        emit_status(
+            f"Trust Region Bayesian Optimization finished successfully using {self.acqf_raw}. "
+            f"Best objective = {float(best_record['objective']):.6g}.",
+            level="SUCCESS",
+            progress=100,
+            stage="finished",
+            algorithm="Trust Region Bayesian Optimization",
+        )
         return {
             "status": "success",
             "message": f"Trust Region Bayesian Optimization finished using {self.acqf_raw} ({self.acqf}).",
@@ -492,8 +645,8 @@ class ContinuousMOBOBotorch(VanillaBOBotorch):
     BoTorch acquisitions maximize by default.
     """
 
-    def __init__(self, config, aspen):
-        super().__init__(config, aspen)
+    def __init__(self, config):
+        super().__init__(config)
         if not _only_continuous_config(config):
             raise RuntimeError(
                 "Vanilla M.O. Bayesian Optimization solo está habilitado para variables continuas. "
@@ -516,69 +669,17 @@ class ContinuousMOBOBotorch(VanillaBOBotorch):
         self.raw_samples = int(float(self.hyper.get("raw_samples", 512)))
         self.ref_point_raw = self.hyper.get("ref_point", self.hyper.get("reference_point", "auto"))
 
-    def evaluate_point_multi(self, aspen, config, x):
+    def evaluate_point_multi(self, config, x):
+        """Evaluate one multi-objective candidate through the C# Aspen backend."""
         x = self.preprocess_x(config, x)
-        ok_constraints, violations = self.check_input_constraints(config, x)
-        if not ok_constraints:
+        try:
+            return self.evaluator.evaluate_one(x)
+        except Exception as e:
             return self.penalty_result_multi(
                 config=config,
                 x=x,
-                reason="Punto rechazado antes de correr Aspen porque no cumple restricciones de entrada.",
-                violations=violations,
+                reason=f"Error requesting Aspen evaluation from C#: {e}",
             )
-
-        try:
-            self.update_aspen(aspen, config)
-            for input_var, value in zip(config["inputs"], x):
-                self.set_aspen_variable(aspen, input_var["path"], value)
-            self.run_aspen(aspen)
-
-            converged, run_status, status_message = self.check_aspen_convergence(aspen)
-            if not converged:
-                self.reinit_aspen(aspen)
-                return self.penalty_result_multi(config, x, status_message, run_status=run_status)
-
-            outputs = {}
-            for output_var in config["outputs"]:
-                outputs[output_var["tag"]] = self.get_aspen_variable(aspen, output_var["path"])
-
-            safe_globals = {"__builtins__": {}}
-            safe_locals = {
-                **outputs,
-                "abs": abs,
-                "min": min,
-                "max": max,
-                "round": round,
-                "math": math,
-                "np": np,
-            }
-
-            f_minimized = []
-            f_raw = []
-            for obj in self.objectives:
-                value_raw = float(eval(obj["expression"], safe_globals, safe_locals))
-                if not np.isfinite(value_raw):
-                    raise RuntimeError(f"La función objetivo no es finita: {value_raw}")
-                sense = str(obj.get("sense", "Minimize")).lower()
-                value_min = -value_raw if sense == "maximize" else value_raw
-                f_raw.append(value_raw)
-                f_minimized.append(value_min)
-
-            return {
-                "objective_values": f_minimized,
-                "objective_values_raw": f_raw,
-                "outputs": outputs,
-                "x": x,
-                "feasible": True,
-                "aspen_converged": True,
-                "run_status": run_status,
-                "message": status_message,
-            }
-
-        except Exception as e:
-            self.reinit_aspen(aspen)
-            return self.penalty_result_multi(config, x, f"Error al evaluar el punto en Aspen: {e}")
-
     def penalty_result_multi(self, config, x, reason, violations=None, run_status=None):
         x = self.preprocess_x(config, x)
         outputs = {output_var["tag"]: None for output_var in config.get("outputs", [])}
@@ -595,7 +696,7 @@ class ContinuousMOBOBotorch(VanillaBOBotorch):
 
     def evaluate_and_store_multi(self, x):
         x = self.round_to_valid_x(x)
-        result = self.evaluate_point_multi(self.aspen, self.config, x)
+        result = self.evaluate_point_multi(self.config, x)
         record = {
             "evaluation": len(self.history_records) + 1,
             "x": {
@@ -626,7 +727,16 @@ class ContinuousMOBOBotorch(VanillaBOBotorch):
             if key in observed_keys or not self.satisfies_input_constraints(x):
                 continue
             observed_keys.add(key)
-            self.evaluate_and_store_multi(x)
+            record = self.evaluate_and_store_multi(x)
+            emit_status(
+                f"Multi-objective BO initial design {len(self.history_records)}/{self.n_init} completed (Sobol).",
+                level="PROGRESS" if record.get("aspen_converged") else "WARNING",
+                progress=100.0 * len(self.history_records) / max(1, self.n_init + self.n_iter),
+                stage="initial_design",
+                current=len(self.history_records),
+                total=self.n_init,
+                algorithm="Vanilla M.O. Bayesian Optimization",
+            )
             if len(self.history_records) >= self.n_init:
                 break
 
@@ -635,7 +745,16 @@ class ContinuousMOBOBotorch(VanillaBOBotorch):
             if x is None:
                 break
             observed_keys.add(self.point_key(x))
-            self.evaluate_and_store_multi(x)
+            record = self.evaluate_and_store_multi(x)
+            emit_status(
+                f"Multi-objective BO initial design {len(self.history_records)}/{self.n_init} completed (random fallback).",
+                level="PROGRESS" if record.get("aspen_converged") else "WARNING",
+                progress=100.0 * len(self.history_records) / max(1, self.n_init + self.n_iter),
+                stage="initial_design",
+                current=len(self.history_records),
+                total=self.n_init,
+                algorithm="Vanilla M.O. Bayesian Optimization",
+            )
 
     def get_valid_multi_records(self):
         return [
@@ -758,23 +877,73 @@ class ContinuousMOBOBotorch(VanillaBOBotorch):
 
     def run(self):
         observed_keys = set()
+        total_steps = max(1, self.n_init + self.n_iter)
+
+        emit_status(
+            f"Starting continuous multi-objective Bayesian Optimization: objectives={self.n_obj}, "
+            f"n_init={self.n_init}, n_iter={self.n_iter}, batch_size={self.batch_size}, seed={self.seed}.",
+            level="INFO",
+            progress=0,
+            stage="setup",
+            algorithm="Vanilla M.O. Bayesian Optimization",
+        )
+
         self.initial_design_multi(observed_keys)
 
         for iteration in range(self.n_iter):
+            iteration_number = iteration + 1
             valid_records = self.get_valid_multi_records()
+            emit_status(
+                f"Multi-objective BO iteration {iteration_number}/{self.n_iter}: "
+                f"{len(valid_records)} valid observations available.",
+                level="INFO",
+                stage="model",
+                current=iteration_number,
+                total=self.n_iter,
+                algorithm="Vanilla M.O. Bayesian Optimization",
+            )
+
             if len(valid_records) < max(2, self.n_obj + 1):
+                emit_status(
+                    "Not enough valid observations for the multi-objective surrogate; using random sampling.",
+                    level="WARNING",
+                    stage="candidate",
+                    algorithm="Vanilla M.O. Bayesian Optimization",
+                )
                 x_next = self.random_unobserved(observed_keys)
                 if x_next is None:
                     break
                 observed_keys.add(self.point_key(x_next))
                 self.evaluate_and_store_multi(x_next)
+                completed = self.n_init + iteration_number
+                emit_status(
+                    f"Multi-objective BO iteration {iteration_number}/{self.n_iter} completed by fallback sampling.",
+                    level="PROGRESS",
+                    progress=100.0 * completed / total_steps,
+                    stage="optimization",
+                    current=iteration_number,
+                    total=self.n_iter,
+                    algorithm="Vanilla M.O. Bayesian Optimization",
+                )
                 continue
 
             train_X, train_Y, _ = self.build_training_data_multi(valid_records)
             try:
+                emit_status(
+                    "Fitting multi-objective GP models and optimizing qEHVI acquisition...",
+                    level="INFO",
+                    stage="acquisition",
+                    algorithm="Vanilla M.O. Bayesian Optimization",
+                    log=False,
+                )
                 X_next_norm = self.propose_mobo_candidate(train_X, train_Y, observed_keys)
             except Exception as e:
-                print(f"Error en MOBO acquisition: {e}", flush=True)
+                emit_status(
+                    f"Multi-objective BO acquisition failed; falling back to random sampling: {e}",
+                    level="WARNING",
+                    stage="acquisition",
+                    algorithm="Vanilla M.O. Bayesian Optimization",
+                )
                 X_next_norm = []
 
             evaluated_any = False
@@ -796,8 +965,34 @@ class ContinuousMOBOBotorch(VanillaBOBotorch):
                 observed_keys.add(self.point_key(x_candidate))
                 self.evaluate_and_store_multi(x_candidate)
 
+            current_valid = self.get_valid_multi_records()
+            if current_valid:
+                F_current = np.array([r["objective_values"] for r in current_valid], dtype=float)
+                nd_count = int(self.nondominated_mask_minimize(F_current).sum())
+            else:
+                nd_count = 0
+
+            completed = self.n_init + iteration_number
+            emit_status(
+                f"Multi-objective BO iteration {iteration_number}/{self.n_iter} completed. "
+                f"Current non-dominated set size = {nd_count}.",
+                level="PROGRESS",
+                progress=100.0 * completed / total_steps,
+                stage="optimization",
+                current=iteration_number,
+                total=self.n_iter,
+                algorithm="Vanilla M.O. Bayesian Optimization",
+            )
+
         valid_records = self.get_valid_multi_records()
         if len(valid_records) == 0:
+            emit_status(
+                "Multi-objective Bayesian Optimization finished without any feasible Aspen-converged point.",
+                level="ERROR",
+                progress=100,
+                stage="finished",
+                algorithm="Vanilla M.O. Bayesian Optimization",
+            )
             return {
                 "status": "error",
                 "message": "Multi-objective Bayesian Optimization terminó, pero ningún punto factible produjo una simulación Aspen convergida.",
@@ -820,6 +1015,14 @@ class ContinuousMOBOBotorch(VanillaBOBotorch):
         pareto_X = X[nd_mask]
         pareto_F_raw = self.restore_raw_objectives(pareto_F)
 
+        emit_status(
+            f"Continuous multi-objective Bayesian Optimization finished successfully. "
+            f"Pareto set size = {len(pareto_F)}.",
+            level="SUCCESS",
+            progress=100,
+            stage="finished",
+            algorithm="Vanilla M.O. Bayesian Optimization",
+        )
         return {
             "status": "success",
             "message": "Continuous Multi-objective Bayesian Optimization finished using qEHVI when available.",

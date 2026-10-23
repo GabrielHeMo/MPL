@@ -1,5 +1,8 @@
 ﻿using Asop.Aspen;
 using Asop.Models;
+using Asop.Evaluation;
+using Asop.PythonIntegration;
+using Asop.Simulation;
 using Microsoft.Win32;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -63,6 +66,12 @@ namespace Asop
         private Dictionary<string, ComboBox> hyperparameterComboBoxes =
             new Dictionary<string, ComboBox>();
 
+        public ObservableCollection<ActivityLogEntry> ActivityLog { get; } =
+            new ObservableCollection<ActivityLogEntry>();
+
+        private const int MaxActivityLogEntries = 2000;
+        private int lastLoggedBatchProgress = -1;
+
         public MainWindow()
         {
             // ESTE ES EL CONSTRUCTOR DE LA CLASE, SE EJECUTA CUANDO SE CREA UNA INSTANCIA DE MainWindow
@@ -80,6 +89,157 @@ namespace Asop
             ObjectiveFunctionsGrid.ItemsSource = objectiveFunctions;
             ConstraintsGrid.ItemsSource = optimizationConstraints;
             LeftVariableColumn.ItemsSource = InputTags;
+
+            SetProgress(0);
+            SetActivityStatus("Ready.");
+            AddLog("INFO", "MPL Optimizer initialized.");
+        }
+
+
+        // Centralized activity log used by UI actions and optimization backends.
+        private void AddLog(string level, string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return;
+
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(() => AddLog(level, message)));
+                return;
+            }
+
+            ActivityLogEntry entry = new ActivityLogEntry
+            {
+                Timestamp = DateTime.Now,
+                Level = string.IsNullOrWhiteSpace(level) ? "INFO" : level.ToUpperInvariant(),
+                Message = message.Trim()
+            };
+
+            ActivityLog.Add(entry);
+
+            while (ActivityLog.Count > MaxActivityLogEntries)
+            {
+                ActivityLog.RemoveAt(0);
+            }
+
+            ActivityLogListBox?.ScrollIntoView(entry);
+        }
+
+        private void SetActivityStatus(string status)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(() => SetActivityStatus(status)));
+                return;
+            }
+
+            TxtActivityStatus.Text = status;
+        }
+
+        private void SetProgress(double? percent, bool indeterminate = false)
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(() => SetProgress(percent, indeterminate)));
+                return;
+            }
+
+            OptimizationProgressBar.IsIndeterminate = indeterminate;
+
+            if (indeterminate || !percent.HasValue)
+            {
+                OptimizationProgressBar.Value = 0;
+                TxtProgressPercent.Text = indeterminate ? "Working..." : "0%";
+                return;
+            }
+
+            double safePercent = Math.Max(0.0, Math.Min(100.0, percent.Value));
+            OptimizationProgressBar.Value = safePercent;
+            TxtProgressPercent.Text = $"{safePercent:0}%";
+        }
+
+        private void BtnClearLog_Click(object sender, RoutedEventArgs e)
+        {
+            ActivityLog.Clear();
+        }
+
+        private void HandleOptimizerStatus(OptimizerStatusMessage status)
+        {
+            if (status == null || string.IsNullOrWhiteSpace(status.Message))
+                return;
+
+            string level = string.IsNullOrWhiteSpace(status.Level)
+                ? "INFO"
+                : status.Level.ToUpperInvariant();
+
+            if (status.Log)
+            {
+                AddLog(level, status.Message);
+            }
+
+            // TxtOptimizationStatus.Text = status.Message;
+            SetActivityStatus(status.Message);
+
+            if (status.Progress.HasValue)
+            {
+                SetProgress(status.Progress.Value);
+            }
+        }
+
+        private bool TryHandleOptimizerStatusLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line) ||
+                !line.StartsWith(PythonJsonlOptimizerBridge.ProtocolPrefix, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            try
+            {
+                string payload = line.Substring(PythonJsonlOptimizerBridge.ProtocolPrefix.Length);
+                JObject message = JObject.Parse(payload);
+                string type = message.Value<string>("type") ?? "";
+
+                if (!type.Equals("status", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                HandleOptimizerStatus(new OptimizerStatusMessage
+                {
+                    Level = message.Value<string>("level") ?? "INFO",
+                    Message = message.Value<string>("message") ?? "",
+                    Progress = message.Value<double?>("progress"),
+                    Stage = message.Value<string>("stage"),
+                    Current = message.Value<int?>("current"),
+                    Total = message.Value<int?>("total"),
+                    Algorithm = message.Value<string>("algorithm"),
+                    Log = message.Value<bool?>("log") ?? true
+                });
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AddLog("WARNING", $"Could not parse an MPL optimizer status message: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task PumpProcessStreamAsync(
+            StreamReader reader,
+            StringBuilder buffer,
+            string level)
+        {
+            string? line;
+
+            while ((line = await reader.ReadLineAsync()) != null)
+            {
+                buffer.AppendLine(line);
+
+                if (!string.IsNullOrWhiteSpace(line) && !TryHandleOptimizerStatusLine(line))
+                {
+                    AddLog(level, line);
+                }
+            }
         }
 
 
@@ -103,17 +263,19 @@ namespace Asop
         // BOTON QUE PERMITE ENCONTRAR RUTA DE ASPEN
         private void BtnFind_Click(object sender, RoutedEventArgs e)
         {
-            OpenFileDialog dialog = new OpenFileDialog();
-
-            dialog.Title = "Select an Aspen file";
-            dialog.Filter = "Aspen Backup Files (*.bkp)|*.bkp";
+            OpenFileDialog dialog = new OpenFileDialog
+            {
+                Title = "Select an Aspen file",
+                Filter = "Aspen Backup Files (*.bkp)|*.bkp"
+            };
 
             if (dialog.ShowDialog() == true)
             {
                 selectedAspenFile = dialog.FileName;
                 TxtFilePath.Text = selectedAspenFile;
 
-                MessageBox.Show("File successfully selected.");
+                AddLog("SUCCESS", $"Aspen file selected: {Path.GetFileName(selectedAspenFile)}");
+                SetActivityStatus("Aspen file selected.");
             }
         }
 
@@ -123,33 +285,51 @@ namespace Asop
         {
             if (string.IsNullOrEmpty(selectedAspenFile))
             {
-                MessageBox.Show("First, select an Aspen file..");
+                AddLog("WARNING", "Select an Aspen file before reading the Aspen tree.");
+                SetActivityStatus("Aspen file required.");
                 return;
             }
 
             BtnRead.IsEnabled = false;
+            SetActivityStatus("Opening Aspen Plus...");
+            SetProgress(null, true);
+            AddLog("INFO", "Opening Aspen Plus and preparing to read the simulation tree...");
 
-            bool success = connector.OpenSimulation(selectedAspenFile);
-
-            if (!success)
+            try
             {
-                MessageBox.Show("Could not open Aspen.");
-                BtnRead.IsEnabled = true;
-                return;
+                bool success = connector.OpenSimulation(selectedAspenFile);
+
+                if (!success)
+                {
+                    AddLog("ERROR", "Aspen Plus could not be opened.");
+                    SetActivityStatus("Could not open Aspen Plus.");
+                    return;
+                }
+
+                AddLog("SUCCESS", "Aspen Plus simulation opened successfully.");
+                AddLog("INFO", "Reading numeric variables from the Aspen tree...");
+
+                await Task.Delay(3000); // allows Aspen to finish loading
+
+                List<AspenVariable> variables = await Task.Run(() => connector.ReadTree());
+
+                allVariables = variables;
+                BuildTreeView(allVariables);
+
+                AddLog("SUCCESS", $"Aspen tree loaded. {allVariables.Count} numeric variables were found.");
+                SetActivityStatus("Aspen tree ready.");
+                SetProgress(100);
             }
-
-            await Task.Delay(3000); // deja que Aspen termine de cargar
-
-            List<AspenVariable> variables = await Task.Run(() =>
+            catch (Exception ex)
             {
-                return connector.ReadTree();
-            });
-
-            allVariables = variables;
-            BuildTreeView(allVariables);
-
-            BtnRead.IsEnabled = true;
-
+                AddLog("ERROR", $"Error while reading the Aspen tree: {ex.Message}");
+                SetActivityStatus("Aspen tree read failed.");
+                SetProgress(0);
+            }
+            finally
+            {
+                BtnRead.IsEnabled = true;
+            }
         }
 
         // BOTON QUE LIMPIA TODO HASTA EL MOMENTO ENCONTRAR RUTA DE ASPEN
@@ -158,15 +338,26 @@ namespace Asop
             connector.CloseSimulation();
 
             AspenTreeView.Items.Clear();
-            inputParameters.Clear();  // LImpia inputs
-            outputObjectives.Clear(); // Limpia outpust
-            objectiveFunctions.Clear(); // Limpia funciones objetivos
+            inputParameters.Clear();
+            outputObjectives.Clear();
+            objectiveFunctions.Clear();
             optimizationConstraints.Clear();
             allVariables.Clear();
-            TxtFilePath.Clear();
+            selectedVariable = null;
+            selectedAspenFile = "";
+            lastResultsPath = "";
+            lastResultsJson = "";
 
-            LoadHyperparametersForSelectedAlgorithm();
+            TxtFilePath.Clear();
+            BtnExportResults.IsEnabled = false;
+
+            UpdateInputTags();
+            UpdateProblemType();
             ValidateOptimizationSetup();
+
+            SetProgress(0);
+            SetActivityStatus("Workspace cleaned.");
+            AddLog("SUCCESS", "Workspace cleaned and Aspen connection closed.");
         }
 
 
@@ -220,8 +411,9 @@ namespace Asop
 
 
             }
-            // CERRAR ASPEN POR QUE SOLO SE VA A LEET EL TREE
+            // Aspen is only needed while the tree is being read.
             connector.CloseSimulation();
+            AddLog("INFO", "Aspen connection closed after reading the tree.");
         }
 
 
@@ -242,7 +434,7 @@ namespace Asop
         {
             if (selectedVariable == null)
             {
-                MessageBox.Show("Select a numeric variable from the tree.");
+                AddLog("WARNING", "Select a numeric variable from the Aspen tree first.");
                 return;
             }
 
@@ -252,7 +444,7 @@ namespace Asop
 
                 if (alreadyExists)
                 {
-                    MessageBox.Show("This variable has already been added as an input parameter.");
+                    AddLog("WARNING", $"Input already added: {selectedVariable.Path}");
                     return;
                 }
 
@@ -260,32 +452,29 @@ namespace Asop
 
                 double.TryParse(
                     selectedVariable.Value,
-                    System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture,
+                    NumberStyles.Float,
+                    CultureInfo.InvariantCulture,
                     out currentValue
                 );
 
-                // AGREGAR NUEVA INPUT
                 AspenVariable newInput = new AspenVariable
                 {
                     Tag = $"x{inputParameters.Count + 1}",
                     Path = selectedVariable.Path,
                     Value = selectedVariable.Value,
-                    Restar = (currentValue).ToString(System.Globalization.CultureInfo.InvariantCulture), //selectedVariable.Restar,
+                    Restar = currentValue.ToString(CultureInfo.InvariantCulture),
                     Type = selectedVariable.Type,
                     Editable = selectedVariable.Editable,
                     VariableKind = "Continuous",
-                    LowerBound = (currentValue * 0.5).ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    UpperBound = (currentValue * 1.5).ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    LowerBound = (currentValue * 0.5).ToString(CultureInfo.InvariantCulture),
+                    UpperBound = (currentValue * 1.5).ToString(CultureInfo.InvariantCulture)
                 };
 
                 inputParameters.Add(newInput);
-
-                // Hacer update de los tags para que estén sincronizados con el orden en la grilla
                 UpdateInputTags();
                 ValidateOptimizationSetup();
 
-                MessageBox.Show("Variable added as an input parameter.");
+                AddLog("SUCCESS", $"Added input {newInput.Tag}: {newInput.Path}");
                 return;
             }
 
@@ -295,7 +484,7 @@ namespace Asop
 
                 if (alreadyExists)
                 {
-                    MessageBox.Show("This variable has already been added as an objective function..");
+                    AddLog("WARNING", $"Output already added: {selectedVariable.Path}");
                     return;
                 }
 
@@ -306,16 +495,15 @@ namespace Asop
                     Value = selectedVariable.Value,
                     Type = selectedVariable.Type,
                     Editable = selectedVariable.Editable
-
                 };
 
                 outputObjectives.Add(newOutput);
                 ValidateOptimizationSetup();
-                MessageBox.Show("Aggregated variable as an objective function.");
+                AddLog("SUCCESS", $"Added output {newOutput.Tag}: {newOutput.Path}");
                 return;
             }
 
-            MessageBox.Show("The selected variable is neither Input nor Output.");
+            AddLog("WARNING", "The selected Aspen variable is neither Input nor Output.");
         }
 
 
@@ -328,10 +516,13 @@ namespace Asop
 
                 if (itemToRemove != null)
                 {
+                    string removedTag = itemToRemove.Tag;
+                    string removedPath = itemToRemove.Path;
                     inputParameters.Remove(itemToRemove);
                     UpdateInputTags();
                     ValidateOptimizationSetup();
                     InputParametersGrid.Items.Refresh();
+                    AddLog("INFO", $"Removed input {removedTag}: {removedPath}");
                 }
 
                 return;
@@ -344,14 +535,18 @@ namespace Asop
 
                 if (itemToRemove != null)
                 {
+                    string removedTag = itemToRemove.Tag;
+                    string removedPath = itemToRemove.Path;
                     outputObjectives.Remove(itemToRemove);
                     OutputObjectivesGrid.Items.Refresh();
+                    ValidateOptimizationSetup();
+                    AddLog("INFO", $"Removed output {removedTag}: {removedPath}");
                 }
 
                 return;
             }
 
-            MessageBox.Show("Select a variable from Input Parameters or Output Objectives to remove.");
+            AddLog("WARNING", "Select an input or output row before removing it.");
         }
 
 
@@ -366,51 +561,54 @@ namespace Asop
 
                     bool lbOk = double.TryParse(
                         lbText,
-                        System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture,
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
                         out double lb
                     );
 
                     bool ubOk = double.TryParse(
                         ubText,
-                        System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture,
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
                         out double ub
                     );
 
                     if (!lbOk || !ubOk)
+                    {
+                        AddLog("WARNING", $"Invalid numeric bounds for {variable.Tag}.");
                         continue;
+                    }
 
                     if (ub <= lb)
                     {
-                        MessageBox.Show($"Upper Bound must be greater than Lower Bound for:\n{variable.Path}");
+                        AddLog("WARNING", $"Upper Bound must be greater than Lower Bound for {variable.Tag}: {variable.Path}");
                         return;
                     }
 
-                    if (variable.VariableKind == "Discrete")
+                    if (variable.VariableKind == "Discrete" && (lb % 1 != 0 || ub % 1 != 0))
                     {
-                        if (lb % 1 != 0 || ub % 1 != 0)
-                        {
-                            MessageBox.Show($"For discrete variables, the Lower Bound and Upper Bound must be integers.:\n{variable.Path}");
-                            return;
-                        }
+                        AddLog("WARNING", $"Discrete bounds must be integers for {variable.Tag}: {variable.Path}");
+                        return;
                     }
                 }
+
+                ValidateOptimizationSetup();
             }));
         }
 
         // FUNCIONES PARA AGREGAR Y REMOVER FUNCIONES OBJETIVO Y RESTRICCIONES
         private void BtnAddObjective_Click(object sender, RoutedEventArgs e)
         {
-            objectiveFunctions.Add(new ObjectiveFunction
+            ObjectiveFunction objective = new ObjectiveFunction
             {
                 Name = $"Obj{objectiveFunctions.Count + 1}",
-                Expression = "",
+                Expression = "Define Objective Function",
                 Sense = "Minimize"
-            });
+            };
 
+            objectiveFunctions.Add(objective);
             UpdateProblemType();
-
+            AddLog("INFO", $"Added objective function {objective.Name}.");
         }
 
 
@@ -420,36 +618,23 @@ namespace Asop
             {
                 objectiveFunctions.Remove(selectedObjective);
                 UpdateProblemType();
+                AddLog("INFO", $"Removed objective function {selectedObjective.Name}.");
                 return;
             }
 
-            MessageBox.Show("Select an objective function to remove.");
+            AddLog("WARNING", "Select an objective function before removing it.");
         }
 
         // FUNCIONES DEL PANEL
         private void BtnAddObjectiveFunction_Panel_Click(object sender, RoutedEventArgs e)
         {
-            objectiveFunctions.Add(new ObjectiveFunction
-            {
-                Name = $"Obj{objectiveFunctions.Count + 1}",
-                Expression = "",
-                Sense = "Minimize"
-            });
-
-            UpdateProblemType();
+            BtnAddObjective_Click(sender, e);
         }
 
 
         private void BtnRemoveObjectiveFunction_Panel_Click(object sender, RoutedEventArgs e)
         {
-            if (ObjectiveFunctionsGrid.SelectedItem is ObjectiveFunction selectedObjective)
-            {
-                objectiveFunctions.Remove(selectedObjective);
-                UpdateProblemType();
-                return;
-            }
-
-            MessageBox.Show("Select an objective function to remove.");
+            BtnRemoveObjective_Click(sender, e);
         }
 
         private void ObjectiveFunctionsGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
@@ -471,6 +656,9 @@ namespace Asop
                 RightSide = "",
                 Description = ""
             });
+
+            ValidateOptimizationSetup();
+            AddLog("INFO", "Added a new optimization constraint.");
         }
 
         private void BtnRemoveConstraint_Click(object sender, RoutedEventArgs e)
@@ -478,10 +666,12 @@ namespace Asop
             if (ConstraintsGrid.SelectedItem is OptimizationConstraint selectedConstraint)
             {
                 optimizationConstraints.Remove(selectedConstraint);
+                ValidateOptimizationSetup();
+                AddLog("INFO", "Removed optimization constraint.");
                 return;
             }
 
-            MessageBox.Show("Select a restriction to remove..");
+            AddLog("WARNING", "Select a constraint before removing it.");
         }
 
         private void UpdateProblemType()
@@ -499,10 +689,10 @@ namespace Asop
 
         private void BtnAddManualInput_Click(object sender, RoutedEventArgs e)
         {
-            inputParameters.Add(new AspenVariable
+            AspenVariable variable = new AspenVariable
             {
                 Tag = $"x{inputParameters.Count + 1}",
-                Path = "Add rute",
+                Path = "Add route",
                 Value = "0",
                 Restar = "0",
                 Type = "Input",
@@ -510,21 +700,28 @@ namespace Asop
                 VariableKind = "Continuous",
                 LowerBound = "0",
                 UpperBound = "1"
-            });
+            };
+
+            inputParameters.Add(variable);
             UpdateInputTags();
             ValidateOptimizationSetup();
+            AddLog("INFO", $"Added manual input {variable.Tag}.");
         }
 
         private void BtnAddManualOutput_Click(object sender, RoutedEventArgs e)
         {
-            outputObjectives.Add(new AspenVariable
+            AspenVariable variable = new AspenVariable
             {
                 Tag = $"y{outputObjectives.Count + 1}",
                 Path = "",
                 Value = "0",
                 Type = "Output",
                 Editable = false
-            });
+            };
+
+            outputObjectives.Add(variable);
+            ValidateOptimizationSetup();
+            AddLog("INFO", $"Added manual output {variable.Tag}.");
         }
 
         private void UpdateInputTags()
@@ -624,7 +821,8 @@ namespace Asop
 
             AlgorithmComboBox.SelectedIndex = -1;
             BtnRunOptimization.IsEnabled = false;
-            TxtOptimizationStatus.Text = "Select an algorithm.";
+            //TxtOptimizationStatus.Text = "Select an algorithm.";
+            SetActivityStatus("Select an optimization algorithm.");
         }
 
 
@@ -705,15 +903,18 @@ namespace Asop
 
             if (ready)
             {
-                TxtOptimizationStatus.Text = "Ready to run.";
+                //TxtOptimizationStatus.Text = "Ready to run.";
+                SetActivityStatus("Ready to run.");
             }
             else if (hasAlgorithm && !validContinuousOnlyAlgorithm)
             {
-                TxtOptimizationStatus.Text = "Selected Bayesian trust-region/MOBO method only supports continuous variables.";
+                //TxtOptimizationStatus.Text = "Selected Bayesian trust-region/MOBO method only supports continuous variables.";
+                SetActivityStatus("Selected algorithm requires continuous variables.");
             }
             else
             {
-                TxtOptimizationStatus.Text = "Incomplete setup.";
+                //TxtOptimizationStatus.Text = "Incomplete setup.";
+                SetActivityStatus("Incomplete optimization setup.");
             }
         }
 
@@ -723,6 +924,12 @@ namespace Asop
         {
             LoadHyperparametersForSelectedAlgorithm();
             ValidateOptimizationSetup();
+
+            string algorithm = AlgorithmComboBox.SelectedItem?.ToString() ?? "";
+            if (!string.IsNullOrWhiteSpace(algorithm))
+            {
+                AddLog("INFO", $"Optimization algorithm selected: {algorithm}.");
+            }
         }
 
         private void LoadHyperparametersForSelectedAlgorithm()
@@ -959,14 +1166,6 @@ namespace Asop
                 AddNumericHyperparameter("num_restarts", "Acquisition restarts", "10");
                 AddNumericHyperparameter("raw_samples", "Raw samples", "512");
                 AddNumericHyperparameter("seed", "Seed", "42");
-            }
-            else if (algorithm == "NSGA-II")
-            {
-                AddNumericHyperparameter("generations", "Generations", "10");
-                AddNumericHyperparameter("pop_size", "Population Size", "25");
-                AddNumericHyperparameter("n_offsprings", "n_offsprings", "10");
-                AddNumericHyperparameter("seed", "Seed", "42");
-
             }
             else if (algorithm == "R-NSGA-II")
             {
@@ -1291,23 +1490,34 @@ namespace Asop
 
             if (!BtnRunOptimization.IsEnabled)
             {
-                MessageBox.Show("The optimization configuration is incomplete..");
+                AddLog("WARNING", "The optimization configuration is incomplete.");
+                SetActivityStatus("Incomplete optimization setup.");
                 return;
             }
 
             BtnRunOptimization.IsEnabled = false;
-            TxtOptimizationStatus.Text = "Running optimization...";
+            BtnExportResults.IsEnabled = false;
+            //TxtOptimizationStatus.Text = "Running optimization...";
+            SetActivityStatus("Optimization running...");
+            SetProgress(null, true);
+            lastLoggedBatchProgress = -1;
 
             try
             {
                 string algorithm = AlgorithmComboBox.SelectedItem?.ToString() ?? "";
                 Dictionary<string, string> hyperparameters = ExtractHyperparameters();
+                string backend = UsesCSharpAspenBackend(algorithm) ? "C# → Aspen / JSONL" : "Python → Aspen COM";
+
+                AddLog("INFO", $"Starting {algorithm} optimization.");
+                AddLog("INFO", $"Evaluation backend: {backend}.");
+                AddLog("INFO", $"Inputs: {inputParameters.Count}; outputs: {outputObjectives.Count}; objectives: {objectiveFunctions.Count}; constraints: {optimizationConstraints.Count}.");
 
                 var optimizationData = new
                 {
                     aspen_file = selectedAspenFile,
                     problem_type = objectiveFunctions.Count <= 1 ? "single_objective" : "multi_objective",
                     algorithm = algorithm,
+                    evaluation_backend = UsesCSharpAspenBackend(algorithm) ? "csharp_jsonl" : "python_com",
                     hyperparameters = hyperparameters,
 
                     inputs = inputParameters.Select(v => new
@@ -1346,53 +1556,178 @@ namespace Asop
                         }).ToList()
                 };
 
-                //string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "optimization_config.json");
-                //string resultsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "optimization_results.json");
-
                 string dataDirectory = GetMplDataDirectory();
-
-                string configPath = Path.Combine(
-                    dataDirectory,
-                    "optimization_config.json"
-                );
-
-                string resultsPath = Path.Combine(
-                    dataDirectory,
-                    "optimization_results.json"
-                );
+                string configPath = Path.Combine(dataDirectory, "optimization_config.json");
+                string resultsPath = Path.Combine(dataDirectory, "optimization_results.json");
 
                 if (File.Exists(resultsPath))
                 {
                     File.Delete(resultsPath);
                 }
 
-
                 string json = JsonConvert.SerializeObject(optimizationData, Formatting.Indented);
                 File.WriteAllText(configPath, json);
+                AddLog("INFO", $"Optimization configuration written to {configPath}");
 
-                // EJECUTA ASPEN
-                string resultJson = await RunPythonOptimizerAsync(configPath, resultsPath);
+                string resultJson;
+
+                if (UsesCSharpAspenBackend(algorithm))
+                {
+                    resultJson = await RunPythonOptimizerWithCSharpAspenAsync(
+                        configPath,
+                        resultsPath,
+                        json);
+                }
+                else
+                {
+                    resultJson = await RunPythonOptimizerAsync(configPath, resultsPath);
+                }
 
                 lastResultsPath = resultsPath;
                 lastResultsJson = resultJson;
 
-                //MessageBox.Show("Resultados Python:\n" + resultJson);
-
-                TxtOptimizationStatus.Text = "Optimization finished.";
+                //TxtOptimizationStatus.Text = "Optimization finished.";
+                SetActivityStatus("Optimization completed.");
+                SetProgress(100);
                 BtnExportResults.IsEnabled = true;
-
-
+                AddLog("SUCCESS", $"Optimization finished successfully. Results: {resultsPath}");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error:\n" + ex.Message);
-                TxtOptimizationStatus.Text = "Optimization failed.";
+                //TxtOptimizationStatus.Text = "Optimization failed.";
+                SetActivityStatus("Optimization failed.");
+                SetProgress(0);
+                AddLog("ERROR", $"Optimization failed: {ex.Message}");
             }
             finally
             {
-                BtnRunOptimization.IsEnabled = true; // VUELVE HABILITAR EL BOTON DESPUES DE TERMINAR
+                ValidateOptimizationSetup();
             }
+        }
 
+
+        private static bool UsesCSharpAspenBackend(string algorithm)
+        {
+            // Phase 1 final architecture: every algorithm currently exposed in the UI
+            // delegates physical Aspen evaluations to the C# JSONL evaluation backend.
+            string[] csharpAlgorithms =
+            {
+                // Single-objective
+                "GA",
+                "DE",
+                "PSO",
+                "NelderMead",
+                "PatternSearch",
+                "BRKGA",
+                "ES",
+                "SRES",
+                "ISRES",
+                "CMAES",
+                "G3PCX",
+                "NRBO",
+                "SBOA",
+                "Vanilla Bayesian Optimization",
+                "Discrete Bayesian Optimization",
+                "Trust Region Bayesian Optimization",
+
+                // Multi-objective
+                "NSGA-II",
+                "R-NSGA-II",
+                "NSGA-III",
+                "U-NSGA-III",
+                "R-NSGA-III",
+                "MOEA/D",
+                "AGE-MOEA",
+                "AGE-MOEA2",
+                "RVEA",
+                "SMS-EMOA",
+                "MOPSO-CD",
+                "CMOPSO",
+                "Vanilla M.O. Bayesian Optimization"
+            };
+
+            return csharpAlgorithms.Contains(algorithm, StringComparer.OrdinalIgnoreCase);
+        }
+
+
+        private async Task<string> RunPythonOptimizerWithCSharpAspenAsync(
+            string configPath,
+            string resultsPath,
+            string configJson)
+        {
+            string pythonExe = "python";
+            string scriptPath = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "optimizer_runner.py"
+            );
+
+            OptimizationBridgeConfig bridgeConfig =
+                JsonConvert.DeserializeObject<OptimizationBridgeConfig>(configJson)
+                ?? throw new InvalidOperationException("Could not deserialize the optimization bridge configuration.");
+
+            await using AspenPlusProvider provider = new AspenPlusProvider();
+
+            //TxtOptimizationStatus.Text = "Opening Aspen Plus from C#...";
+            SetActivityStatus("Opening Aspen Plus from C#...");
+            SetProgress(null, true);
+            AddLog("INFO", "Opening Aspen Plus through the C# evaluation provider...");
+
+            await provider.OpenAsync(selectedAspenFile);
+            AddLog("SUCCESS", "Aspen Plus opened by the C# provider.");
+
+            AspenEvaluationEngine engine = new AspenEvaluationEngine(provider, bridgeConfig);
+
+            Progress<EvaluationProgress> progress = new Progress<EvaluationProgress>(p =>
+            {
+                string progressText =
+                    $"Evaluating Aspen batch: {p.Completed}/{p.Total} " +
+                    $"(OK: {p.Successful}, Failed: {p.Failed})";
+
+                //TxtOptimizationStatus.Text = progressText;
+                SetActivityStatus(progressText);
+
+                if (p.Total > 1)
+                {
+                    // Population-based algorithms send real batches. For those, show
+                    // batch progress and keep only coarse progress entries in the log.
+                    double percent = 100.0 * p.Completed / p.Total;
+                    SetProgress(percent);
+
+                    int rounded = (int)Math.Round(percent);
+                    if (p.Completed <= 1)
+                    {
+                        lastLoggedBatchProgress = -1;
+                    }
+
+                    if (p.Completed == p.Total || rounded >= lastLoggedBatchProgress + 10)
+                    {
+                        AddLog("PROGRESS", progressText);
+                        lastLoggedBatchProgress = rounded;
+                    }
+                }
+                else if (p.Total <= 0)
+                {
+                    SetProgress(null, true);
+                }
+                // For one-point BO/SBOA requests, do not force the progress bar to 100%
+                // and do not add a permanent "1/1" line. The optimizer status message
+                // that follows carries the meaningful overall optimization progress.
+            });
+
+            Progress<OptimizerStatusMessage> optimizerStatus =
+                new Progress<OptimizerStatusMessage>(HandleOptimizerStatus);
+
+            string result = await PythonJsonlOptimizerBridge.RunAsync(
+                pythonExe,
+                scriptPath,
+                configPath,
+                resultsPath,
+                engine,
+                progress,
+                statusProgress: optimizerStatus);
+
+            AddLog("INFO", "C#/Python optimization bridge completed.");
+            return result;
         }
 
 
@@ -1421,37 +1756,39 @@ namespace Asop
                 EnableRaisingEvents = true
             };
 
-            process.Start();
+            StringBuilder output = new StringBuilder();
+            StringBuilder error = new StringBuilder();
 
-            Task<string> outputTask = process.StandardOutput.ReadToEndAsync();
-            Task<string> errorTask = process.StandardError.ReadToEndAsync();
+            SetActivityStatus("Python optimizer running...");
+            SetProgress(null, true);
+            AddLog("INFO", $"Starting Python optimizer: {Path.GetFileName(scriptPath)}");
+
+            process.Start();
+            AddLog("INFO", $"Python process started (PID {process.Id}).");
+
+            Task outputTask = PumpProcessStreamAsync(process.StandardOutput, output, "PYTHON");
+            Task errorTask = PumpProcessStreamAsync(process.StandardError, error, "WARNING");
 
             await process.WaitForExitAsync();
+            await Task.WhenAll(outputTask, errorTask);
 
-            string output = await outputTask;
-            string error = await errorTask;
+            AddLog("INFO", $"Python process exited with code {process.ExitCode}.");
 
             if (process.ExitCode != 0)
             {
                 throw new Exception(
-                    "Python terminó con error.\n\n" +
-                    "STDOUT:\n" + output + "\n\n" +
-                    "STDERR:\n" + error
+                    $"Python finished with exit code {process.ExitCode}. Review the activity log for stdout/stderr details."
                 );
             }
 
             if (!File.Exists(resultsPath))
             {
                 throw new Exception(
-                    "Python terminó correctamente, pero no generó el archivo de resultados.\n\n" +
-                    "STDOUT:\n" + output + "\n\n" +
-                    "STDERR:\n" + error
+                    "Python finished successfully, but the results file was not generated. Review the activity log for details."
                 );
             }
 
             return File.ReadAllText(resultsPath);
-
-
         }
 
 
@@ -1611,19 +1948,19 @@ namespace Asop
             {
                 if (string.IsNullOrWhiteSpace(selectedAspenFile))
                 {
-                    MessageBox.Show("First, select an Aspen simulation.");
+                    AddLog("WARNING", "Select an Aspen simulation before exporting results.");
                     return;
                 }
 
                 if (!File.Exists(selectedAspenFile))
                 {
-                    MessageBox.Show("The selected Aspen file was not found.");
+                    AddLog("ERROR", "The selected Aspen file was not found.");
                     return;
                 }
 
                 if (string.IsNullOrWhiteSpace(lastResultsPath) || !File.Exists(lastResultsPath))
                 {
-                    MessageBox.Show("There are no results to export. Run the optimization first.");
+                    AddLog("WARNING", "There are no optimization results to export.");
                     return;
                 }
 
@@ -1631,14 +1968,12 @@ namespace Asop
 
                 if (string.IsNullOrWhiteSpace(userFileName))
                 {
-                    MessageBox.Show("Enter a name for the results file.");
+                    AddLog("WARNING", "Enter a name for the results file before exporting.");
                     return;
                 }
 
-                // Quita extensión si el usuario la puso
                 userFileName = Path.GetFileNameWithoutExtension(userFileName);
 
-                // Limpia caracteres inválidos para nombre de archivo
                 foreach (char invalidChar in Path.GetInvalidFileNameChars())
                 {
                     userFileName = userFileName.Replace(invalidChar, '_');
@@ -1648,7 +1983,7 @@ namespace Asop
 
                 if (string.IsNullOrWhiteSpace(aspenFolder))
                 {
-                    MessageBox.Show("The Aspen simulation folder could not be retrieved..");
+                    AddLog("ERROR", "The Aspen simulation folder could not be resolved.");
                     return;
                 }
 
@@ -1664,23 +1999,28 @@ namespace Asop
                     );
 
                     if (overwrite != MessageBoxResult.Yes)
+                    {
+                        AddLog("INFO", "Results export was canceled by the user.");
                         return;
+                    }
                 }
-                string json = File.ReadAllText(lastResultsPath);
 
+                string json = File.ReadAllText(lastResultsPath);
                 string csv = ConvertJsonToCsv(json);
 
                 File.WriteAllText(
-                                exportPath,
-                                csv,
-                                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)
-                                 );
+                    exportPath,
+                    csv,
+                    new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)
+                );
 
-                MessageBox.Show("Results exported successfully in:\n\n" + exportPath);
+                AddLog("SUCCESS", $"Results exported successfully: {exportPath}");
+                SetActivityStatus("Results exported.");
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Error exporting results:\n\n" + ex.Message);
+                AddLog("ERROR", $"Error exporting results: {ex.Message}");
+                SetActivityStatus("Export failed.");
             }
         }
     }

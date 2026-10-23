@@ -5,7 +5,6 @@ import sys
 import time
 import traceback
 import numpy as np
-import win32com.client
 import csv
 import os 
 import math
@@ -17,6 +16,8 @@ from botorch.acquisition import UpperConfidenceBound, ExpectedImprovement, LogEx
 from botorch.optim import optimize_acqf
 
 import gpytorch
+from .status import emit_status
+from Evaluation.remote_aspen_problem_functions import CSharpAspenEvaluator
 from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.constraints import Interval
@@ -27,12 +28,32 @@ FAILED_RUN_STATUS_VALUES = {9, 10}
 PENALTY_VALUE = 1e10
 
 
+def _emit_single_evaluation_status(algorithm_name, record):
+    """High-frequency status update without permanently flooding the Activity Log."""
+    objective = record.get("objective")
+    try:
+        objective_text = f"{float(objective):.6g}"
+    except Exception:
+        objective_text = str(objective)
+
+    converged = bool(record.get("aspen_converged"))
+    feasible = bool(record.get("feasible"))
+    emit_status(
+        f"{algorithm_name} evaluation {record.get('evaluation')} completed: "
+        f"objective={objective_text}, converged={converged}, feasible={feasible}.",
+        level="PROGRESS" if converged and feasible else "WARNING",
+        stage="aspen_evaluation",
+        current=record.get("evaluation"),
+        algorithm=algorithm_name,
+        log=False,
+    )
+
 
 class DiscreteBOBotorch:
 
-    def __init__(self, config, aspen):
+    def __init__(self, config):
         self.config = config
-        self.aspen = aspen
+        self.evaluator = CSharpAspenEvaluator(config)
         self.history_records = []
 
         self.hyper = config["hyperparameters"]
@@ -125,94 +146,17 @@ class DiscreteBOBotorch:
         return x_processed
         
                 
-    def reinit_aspen(self, aspen):
-        try:
-            aspen.Reinit()
-        except Exception:
-            pass
-
-
-    def evaluate_point(self, aspen, config, x):
+    def evaluate_point(self, config, x):
+        """Evaluate one candidate through the C# -> Aspen JSONL bridge."""
         x = self.preprocess_x(config, x)
-        # Primero se checa si se cumplen las restricciones
-        ok_constraints, violations = self.check_input_constraints(config, x)
-
-        if not ok_constraints:
-            return self.penalty_result(
-                config=config,
-                x=x,
-                reason="Punto rechazado antes de correr Aspen porque no cumple restricciones de entrada.",
-                violations=violations
-            )
-
         try:
-            # Ahora añadimos los valores de restar a las variables para asegurar que si se actualizan no lance error aspen
-            self.update_aspen(aspen , config)
-
-            # Actualizar con valores reales sugeridos
-            for input_var, value in zip(config["inputs"], x):
-                self.set_aspen_variable(aspen, input_var["path"], value)
-            # Se corre aspen
-            self.run_aspen(aspen)
-            # Checar estatus de convergencia de Aspen
-            converged, run_status, status_message = self.check_aspen_convergence(aspen)
-            if not converged:
-                self.reinit_aspen(aspen)
-                return self.penalty_result(
-                    config=config,
-                    x=x,
-                    reason=status_message,
-                    run_status=run_status
-                )
-
-            outputs = {}
-            for output_var in config["outputs"]:
-                outputs[output_var["tag"]] = self.get_aspen_variable(aspen, output_var["path"])
-
-            obj = config["objectives"][0]
-            expression = obj["expression"]
-
-            safe_globals = {"__builtins__": {}}
-            safe_locals = {
-                **outputs,
-                "abs": abs,
-                "min": min,
-                "max": max,
-                "round": round,
-                "math": math,
-                "np": np,
-            }
-            objective_value = float(eval(expression, safe_globals, safe_locals))
-
-            if obj["sense"].lower() == "maximize":
-                objective_value = -objective_value
-
-            if not np.isfinite(objective_value):
-                raise RuntimeError(f"La función objetivo no es finita: {objective_value}")
-
-            return {
-                "objective": objective_value,
-                "outputs": outputs,
-                "x": x,
-                "feasible": True,
-                "aspen_converged": True,
-                "run_status": run_status,
-                "message": status_message,
-                #"violations": []
-            }
-
+            return self.evaluator.evaluate_one(x)
         except Exception as e:
-            self.reinit_aspen(aspen)
             return self.penalty_result(
                 config=config,
                 x=x,
-                reason=f"Error al evaluar el punto en Aspen: {e}"
+                reason=f"Error requesting Aspen evaluation from C#: {e}",
             )
-
-
-    # ---------------------------------------------------------
-    # Restricciones
-    # ---------------------------------------------------------
     def input_context(self, config, x):
         """
         Construye un diccionario tipo {'x1': valor, 'x2': valor, ...}
@@ -360,38 +304,9 @@ class DiscreteBOBotorch:
         return ok
 
 
-    def check_aspen_convergence(self, aspen):
-        """
-        Verifica si Aspen terminó correctamente usando el nodo Run-Status.
-
-        En tu segundo código usabas UOSSTAT2 y penalizabas status 9 o 10.
-        Aquí se conserva la misma idea, pero devolviendo (ok, status, message).
-        """
-        try:
-            node = aspen.Tree.FindNode(RUN_STATUS_DIR)
-        except Exception as e:
-            return False, None, f"No se pudo leer Run-Status: {e}"
-
-        if node is None:
-            return False, None, f"No existe el nodo Run-Status: {RUN_STATUS_DIR}"
-
-        try:
-            status = int(node.Value)
-        except Exception:
-            return False, None, f"Run-Status no tiene un valor entero válido: {getattr(node, 'Value', None)}"
-
-        if status in FAILED_RUN_STATUS_VALUES:
-            return False, status, f"Aspen no convergió. Run-Status = {status}"
-
-        return True, status, f"Aspen convergió. Run-Status = {status}"
-
-
-    # ---------------------------------------------------------
-    # Evaluación Aspen
-    # ---------------------------------------------------------
     def evaluate_and_store(self, x):
         x = self.round_to_valid_x(x)
-        result = self.evaluate_point(self.aspen, self.config, x)
+        result = self.evaluate_point(self.config, x)
 
         record = {
             "evaluation": len(self.history_records) + 1,
@@ -409,6 +324,7 @@ class DiscreteBOBotorch:
         }
 
         self.history_records.append(record)
+        _emit_single_evaluation_status(str(self.config.get("algorithm", "Discrete Bayesian Optimization")), record)
         return record
 
     # ---------------------------------------------------------
@@ -575,9 +491,13 @@ class DiscreteBOBotorch:
                     x_try = self.botorch_to_aspen_x(X_try)
 
                 except Exception as e:
-                    print(
-                        f"Error probando beta={beta_try}, "
-                        f"lengthscale={ls_try}: {e}"
+                    emit_status(
+                        f"Discrete BO alternative-candidate search failed for beta={beta_try}, "
+                        f"lengthscale={ls_try}: {e}",
+                        level="WARNING",
+                        stage="acquisition",
+                        algorithm="Discrete Bayesian Optimization",
+                        log=False,
                     )
                     continue
 
@@ -624,34 +544,95 @@ class DiscreteBOBotorch:
     # ---------------------------------------------------------
     def run(self):
         observed_keys = set()
+        total_steps = max(1, self.n_init + self.n_iter)
+
+        emit_status(
+            f"Starting Discrete Bayesian Optimization: n_init={self.n_init}, n_iter={self.n_iter}, "
+            f"beta={self.beta}, candidates={self.n_candidates}, seed={self.seed}.",
+            level="INFO",
+            progress=0,
+            stage="setup",
+            algorithm="Discrete Bayesian Optimization",
+        )
 
         # Diseño inicial
         while len(self.history_records) < self.n_init:
             x0 = self.random_unobserved(observed_keys)
 
             if x0 is None:
+                emit_status(
+                    "Discrete BO could not generate another valid initial-design point.",
+                    level="WARNING",
+                    stage="initial_design",
+                    algorithm="Discrete Bayesian Optimization",
+                )
                 break
 
             observed_keys.add(self.point_key(x0))
-            self.evaluate_and_store(x0)
+            record = self.evaluate_and_store(x0)
+            completed = len(self.history_records)
+            emit_status(
+                f"Discrete BO initial design {completed}/{self.n_init} completed. "
+                f"Objective = {float(record['objective']):.6g}.",
+                level="PROGRESS" if record.get("aspen_converged") else "WARNING",
+                progress=100.0 * completed / total_steps,
+                stage="initial_design",
+                current=completed,
+                total=self.n_init,
+                algorithm="Discrete Bayesian Optimization",
+            )
 
         # Optimización BO
         for iteration in range(self.n_iter):
-
+            iteration_number = iteration + 1
             valid_records = self.get_valid_records_for_gp()
 
+            emit_status(
+                f"Discrete BO iteration {iteration_number}/{self.n_iter}: "
+                f"{len(valid_records)} valid observations available for the GP.",
+                level="INFO",
+                stage="model",
+                current=iteration_number,
+                total=self.n_iter,
+                algorithm="Discrete Bayesian Optimization",
+            )
+
             if len(valid_records) < 2:
+                emit_status(
+                    "Not enough valid observations to fit the GP; using a random unexplored point.",
+                    level="WARNING",
+                    stage="candidate",
+                    algorithm="Discrete Bayesian Optimization",
+                )
                 x_next = self.random_unobserved(observed_keys)
 
                 if x_next is None:
                     break
 
                 observed_keys.add(self.point_key(x_next))
-                self.evaluate_and_store(x_next)
+                record = self.evaluate_and_store(x_next)
+                completed = self.n_init + iteration_number
+                emit_status(
+                    f"Discrete BO iteration {iteration_number}/{self.n_iter} completed by fallback sampling. "
+                    f"Objective = {float(record['objective']):.6g}.",
+                    level="PROGRESS",
+                    progress=100.0 * completed / total_steps,
+                    stage="optimization",
+                    current=iteration_number,
+                    total=self.n_iter,
+                    algorithm="Discrete Bayesian Optimization",
+                )
                 continue
 
             train_X, train_Y = self.build_training_data(valid_records)
 
+            emit_status(
+                f"Fitting Discrete BO Gaussian Process with {len(valid_records)} observations...",
+                level="INFO",
+                stage="gp_fit",
+                algorithm="Discrete Bayesian Optimization",
+                log=False,
+            )
             model = self.build_model(train_X, train_Y)
 
             try:
@@ -664,7 +645,12 @@ class DiscreteBOBotorch:
                 x_candidate = self.botorch_to_aspen_x(X_next)
 
             except Exception as e:
-                print(f"Error en optimize_acqf: {e}")
+                emit_status(
+                    f"Discrete BO acquisition optimization failed; using a random candidate: {e}",
+                    level="WARNING",
+                    stage="acquisition",
+                    algorithm="Discrete Bayesian Optimization",
+                )
                 x_candidate = self.random_unobserved(observed_keys)
 
             if x_candidate is None:
@@ -678,6 +664,13 @@ class DiscreteBOBotorch:
             )
 
             if needs_alternative:
+                emit_status(
+                    "Discrete BO acquisition proposed a repeated or invalid point; searching for an alternative.",
+                    level="INFO",
+                    stage="candidate",
+                    algorithm="Discrete Bayesian Optimization",
+                    log=False,
+                )
                 x_candidate = self.find_alternative_candidate(
                     model=model,
                     train_Y=train_Y,
@@ -691,12 +684,33 @@ class DiscreteBOBotorch:
                 candidate_key = self.point_key(x_candidate)
 
             observed_keys.add(candidate_key)
-            self.evaluate_and_store(x_candidate)
+            record = self.evaluate_and_store(x_candidate)
+
+            current_valid = self.get_valid_records_for_gp()
+            best_value = min((r["objective"] for r in current_valid), default=record["objective"])
+            completed = self.n_init + iteration_number
+            emit_status(
+                f"Discrete BO iteration {iteration_number}/{self.n_iter} completed. "
+                f"Current best objective = {float(best_value):.6g}.",
+                level="PROGRESS",
+                progress=100.0 * completed / total_steps,
+                stage="optimization",
+                current=iteration_number,
+                total=self.n_iter,
+                algorithm="Discrete Bayesian Optimization",
+            )
 
         # Selección final
         valid_records = self.get_valid_records_for_gp()
 
         if len(valid_records) == 0:
+            emit_status(
+                "Discrete Bayesian Optimization finished without any feasible Aspen-converged point.",
+                level="ERROR",
+                progress=100,
+                stage="finished",
+                algorithm="Discrete Bayesian Optimization",
+            )
             return {
                 "status": "error",
                 "message": "Discrete BO terminó, pero ningún punto factible produjo una simulación Aspen convergida.",
@@ -711,6 +725,15 @@ class DiscreteBOBotorch:
             key=lambda r: r["objective"]
         )
 
+        emit_status(
+            f"Discrete Bayesian Optimization finished successfully. "
+            f"Best objective = {float(best_record['objective']):.6g}.",
+            level="SUCCESS",
+            progress=100,
+            stage="finished",
+            algorithm="Discrete Bayesian Optimization",
+        )
+
         return {
             "status": "success",
             "message": "Discrete Bayesian Optimization with BoTorch finished.",
@@ -721,79 +744,13 @@ class DiscreteBOBotorch:
         }, self.history_records
 
 
-    def set_aspen_variable(self,aspen, path, value):
-        node = aspen.Tree.FindNode(path)
-
-        if node is None:
-            raise RuntimeError(f"The variable Aspen was not found.: {path}")
-
-        node.Value = value
-
-
-    def get_aspen_variable(self, aspen, path):
-        node = aspen.Tree.FindNode(path)
-        if node is None:
-            raise RuntimeError(f"Aspen exit not found: {path}")
-        if node.Value is None:
-            raise RuntimeError(f"The Aspen output has no value: {path}")
-        value = float(node.Value)
-        if not np.isfinite(value):
-            raise RuntimeError(f"The Aspen output is not finite: {path} = {value}")
-        return value
-
-    
-    def update_aspen(self, aspen, config):
-        """
-        Actualiza Aspen con los restart_values antes de evaluar un nuevo punto.
-        restart_values viene dentro de config["inputs"].
-        """
-
-        for input_var in config["inputs"]:
-            path = input_var["path"]
-
-            restart_value = input_var.get("restart_values", None)
-
-            if restart_value is None or str(restart_value).strip() == "":
-                restart_value = input_var.get("current_value", None)
-
-            if restart_value is None or str(restart_value).strip() == "":
-                raise RuntimeError(
-                    f"No hay restart_value para {input_var.get('tag', path)}"
-                )
-
-            value = float(str(restart_value).replace(",", "."))
-
-            variable_type = input_var.get("variable_type", "Continuous")
-
-            if variable_type.lower() == "discrete":
-                value = round(value)
-
-            self.set_aspen_variable(aspen, path, value)
-
-    def run_aspen(self, aspen):
-        aspen.Run2()
-
-        try:
-            while aspen.Engine.IsRunning:
-                time.sleep(0.2)
-        except Exception:
-            time.sleep(2)
-
-                        
-    def reinit_aspen(self, aspen):
-        try:
-            aspen.Reinit()
-        except Exception:
-            pass
-
- 
 class VanillaBOBotorch:
 
-    def __init__(self, config, aspen):
+    def __init__(self, config):
         self.history_records = []
         self.config = config
         self.hyper = config["hyperparameters"]
-        self.aspen = aspen
+        self.evaluator = CSharpAspenEvaluator(config)
 
         self.n_init = int(self.hyper.get("n_init", 5))
         self.n_iter = int(self.hyper.get("n_iter", 30))
@@ -812,32 +769,6 @@ class VanillaBOBotorch:
         self.dim = len(self.lb)
 
         
-    def check_aspen_convergence(self, aspen):
-        """
-        Verifica si Aspen terminó correctamente usando el nodo Run-Status.
-
-        En tu segundo código usabas UOSSTAT2 y penalizabas status 9 o 10.
-        Aquí se conserva la misma idea, pero devolviendo (ok, status, message).
-        """
-        try:
-            node = aspen.Tree.FindNode(RUN_STATUS_DIR)
-        except Exception as e:
-            return False, None, f"No se pudo leer Run-Status: {e}"
-
-        if node is None:
-            return False, None, f"No existe el nodo Run-Status: {RUN_STATUS_DIR}"
-
-        try:
-            status = int(node.Value)
-        except Exception:
-            return False, None, f"Run-Status no tiene un valor entero válido: {getattr(node, 'Value', None)}"
-
-        if status in FAILED_RUN_STATUS_VALUES:
-            return False, status, f"Aspen no convergió. Run-Status = {status}"
-
-        return True, status, f"Aspen convergió. Run-Status = {status}"
-
-
     def normalize_x(self, x):
         return (np.array(x, dtype=float) - self.lb) / (self.ub - self.lb)
 
@@ -1012,13 +943,6 @@ class VanillaBOBotorch:
         }
  
                 
-    def reinit_aspen(self, aspen):
-        try:
-            aspen.Reinit()
-        except Exception:
-            pass
-
-
     def satisfies_input_constraints(self, x):
         x = self.round_to_valid_x(x)
         ok, _ = self.check_input_constraints(self.config, x)
@@ -1055,153 +979,20 @@ class VanillaBOBotorch:
 
         return x_processed
 
-    def set_aspen_variable(self,aspen, path, value):
-        node = aspen.Tree.FindNode(path)
-
-        if node is None:
-            raise RuntimeError(f"The variable Aspen was not found.: {path}")
-
-        node.Value = value
-
-
-    def get_aspen_variable(self, aspen, path):
-        node = aspen.Tree.FindNode(path)
-        if node is None:
-            raise RuntimeError(f"Aspen exit not found: {path}")
-        if node.Value is None:
-            raise RuntimeError(f"The Aspen output has no value: {path}")
-        value = float(node.Value)
-        if not np.isfinite(value):
-            raise RuntimeError(f"The Aspen output is not finite: {path} = {value}")
-        return value
-
-    
-    def update_aspen(self, aspen, config):
-        """
-        Actualiza Aspen con los restart_values antes de evaluar un nuevo punto.
-        restart_values viene dentro de config["inputs"].
-        """
-
-        for input_var in config["inputs"]:
-            path = input_var["path"]
-
-            restart_value = input_var.get("restart_values", None)
-
-            if restart_value is None or str(restart_value).strip() == "":
-                restart_value = input_var.get("current_value", None)
-
-            if restart_value is None or str(restart_value).strip() == "":
-                raise RuntimeError(
-                    f"No hay restart_value para {input_var.get('tag', path)}"
-                )
-
-            value = float(str(restart_value).replace(",", "."))
-
-            variable_type = input_var.get("variable_type", "Continuous")
-
-            if variable_type.lower() == "discrete":
-                value = round(value)
-
-            self.set_aspen_variable(aspen, path, value)
-
-    def run_aspen(self, aspen):
-        aspen.Run2()
-
-        try:
-            while aspen.Engine.IsRunning:
-                time.sleep(0.2)
-        except Exception:
-            time.sleep(2)
-
-                        
-    def reinit_aspen(self, aspen):
-        try:
-            aspen.Reinit()
-        except Exception:
-            pass
-
-
-    def evaluate_point(self, aspen, config, x):
+    def evaluate_point(self, config, x):
+        """Evaluate one candidate through the C# -> Aspen JSONL bridge."""
         x = self.preprocess_x(config, x)
-        # Primero se checa si se cumplen las restricciones
-        ok_constraints, violations = self.check_input_constraints(config, x)
-
-        if not ok_constraints:
-            return self.penalty_result(
-                config=config,
-                x=x,
-                reason="Punto rechazado antes de correr Aspen porque no cumple restricciones de entrada.",
-                violations=violations
-            )
-
         try:
-            # Ahora añadimos los valores de restar a las variables para asegurar que si se actualizan no lance error aspen
-            self.update_aspen(aspen , config)
-
-            # Actualizar con valores reales sugeridos
-            for input_var, value in zip(config["inputs"], x):
-                self.set_aspen_variable(aspen, input_var["path"], value)
-            # Se corre aspen
-            self.run_aspen(aspen)
-            # Checar estatus de convergencia de Aspen
-            converged, run_status, status_message = self.check_aspen_convergence(aspen)
-            if not converged:
-                self.reinit_aspen(aspen)
-                return self.penalty_result(
-                    config=config,
-                    x=x,
-                    reason=status_message,
-                    run_status=run_status
-                )
-
-            outputs = {}
-            for output_var in config["outputs"]:
-                outputs[output_var["tag"]] = self.get_aspen_variable(aspen, output_var["path"])
-
-            obj = config["objectives"][0]
-            expression = obj["expression"]
-
-            safe_globals = {"__builtins__": {}}
-            safe_locals = {
-                **outputs,
-                "abs": abs,
-                "min": min,
-                "max": max,
-                "round": round,
-                "math": math,
-                "np": np,
-            }
-            objective_value = float(eval(expression, safe_globals, safe_locals))
-
-            if obj["sense"].lower() == "maximize":
-                objective_value = -objective_value
-
-            if not np.isfinite(objective_value):
-                raise RuntimeError(f"La función objetivo no es finita: {objective_value}")
-
-            return {
-                "objective": objective_value,
-                "outputs": outputs,
-                "x": x,
-                "feasible": True,
-                "aspen_converged": True,
-                "run_status": run_status,
-                "message": status_message,
-                #"violations": []
-            }
-
+            return self.evaluator.evaluate_one(x)
         except Exception as e:
-            self.reinit_aspen(aspen)
             return self.penalty_result(
                 config=config,
                 x=x,
-                reason=f"Error al evaluar el punto en Aspen: {e}"
+                reason=f"Error requesting Aspen evaluation from C#: {e}",
             )
-
-
     def evaluate_and_store(self, x):
         x = self.round_to_valid_x(x)
-        result = self.evaluate_point(self.aspen, self.config, x)
+        result = self.evaluate_point(self.config, x)
 
         record = {
             "evaluation": len(self.history_records) + 1,
@@ -1219,6 +1010,7 @@ class VanillaBOBotorch:
         }
 
         self.history_records.append(record)
+        _emit_single_evaluation_status(str(self.config.get("algorithm", "Vanilla Bayesian Optimization")), record)
         return record
 
     def random_unobserved(self, observed_keys, max_tries=5000):
@@ -1329,17 +1121,46 @@ class VanillaBOBotorch:
 
     def run(self):
         observed_keys = set()
+        total_steps = max(1, self.n_init + self.n_iter)
+        acquisition_name = str(self.aqf)
+
+        emit_status(
+            f"Starting Vanilla Bayesian Optimization: acquisition={acquisition_name}, "
+            f"n_init={self.n_init}, n_iter={self.n_iter}, seed={self.seed}.",
+            level="INFO",
+            progress=0,
+            stage="setup",
+            algorithm="Vanilla Bayesian Optimization",
+        )
 
         while len(self.history_records) < self.n_init:
             x0 = self.random_unobserved(observed_keys)
 
             if x0 is None:
+                emit_status(
+                    "Vanilla BO could not generate another valid initial-design point.",
+                    level="WARNING",
+                    stage="initial_design",
+                    algorithm="Vanilla Bayesian Optimization",
+                )
                 break
 
             observed_keys.add(self.point_key(x0))
-            self.evaluate_and_store(x0)
+            record = self.evaluate_and_store(x0)
+            completed = len(self.history_records)
+            emit_status(
+                f"Vanilla BO initial design {completed}/{self.n_init} completed. "
+                f"Objective = {float(record['objective']):.6g}.",
+                level="PROGRESS" if record.get("aspen_converged") else "WARNING",
+                progress=100.0 * completed / total_steps,
+                stage="initial_design",
+                current=completed,
+                total=self.n_init,
+                algorithm="Vanilla Bayesian Optimization",
+            )
 
         for iteration in range(self.n_iter):
+            iteration_number = iteration + 1
 
             valid_records = [
                 r for r in self.history_records
@@ -1348,14 +1169,41 @@ class VanillaBOBotorch:
                 and np.isfinite(r["objective"])
             ]
 
+            emit_status(
+                f"Vanilla BO iteration {iteration_number}/{self.n_iter}: "
+                f"{len(valid_records)} valid observations; acquisition={acquisition_name}.",
+                level="INFO",
+                stage="model",
+                current=iteration_number,
+                total=self.n_iter,
+                algorithm="Vanilla Bayesian Optimization",
+            )
+
             if len(valid_records) < 2:
+                emit_status(
+                    "Not enough valid observations to fit the GP; using a random unexplored point.",
+                    level="WARNING",
+                    stage="candidate",
+                    algorithm="Vanilla Bayesian Optimization",
+                )
                 x_next = self.random_unobserved(observed_keys)
 
                 if x_next is None:
                     break
 
                 observed_keys.add(self.point_key(x_next))
-                self.evaluate_and_store(x_next)
+                record = self.evaluate_and_store(x_next)
+                completed = self.n_init + iteration_number
+                emit_status(
+                    f"Vanilla BO iteration {iteration_number}/{self.n_iter} completed by fallback sampling. "
+                    f"Objective = {float(record['objective']):.6g}.",
+                    level="PROGRESS",
+                    progress=100.0 * completed / total_steps,
+                    stage="optimization",
+                    current=iteration_number,
+                    total=self.n_iter,
+                    algorithm="Vanilla Bayesian Optimization",
+                )
                 continue
 
             X_np = np.array([
@@ -1375,26 +1223,70 @@ class VanillaBOBotorch:
 
             train_Y = torch.tensor(Y_np, dtype=torch.double)
 
+            emit_status(
+                f"Fitting Vanilla BO Gaussian Process with {len(valid_records)} observations...",
+                level="INFO",
+                stage="gp_fit",
+                algorithm="Vanilla Bayesian Optimization",
+                log=False,
+            )
             model = self.build_model(train_X, train_Y)
 
+            emit_status(
+                f"Optimizing {acquisition_name} acquisition function...",
+                level="INFO",
+                stage="acquisition",
+                algorithm="Vanilla Bayesian Optimization",
+                log=False,
+            )
             x_candidate = self.get_candidate_from_acquisition(model, train_Y)
             candidate_key = self.point_key(x_candidate)
 
-            #if candidate_key in observed_keys or not self.satisfies_input_constraints(x_candidate):
-            #    x_candidate = self.random_unobserved(observed_keys)
-
             if candidate_key in observed_keys or not self.satisfies_input_constraints(x_candidate):
+                emit_status(
+                    "Vanilla BO acquisition proposed a repeated or invalid point; searching locally around the best point.",
+                    level="INFO",
+                    stage="candidate",
+                    algorithm="Vanilla Bayesian Optimization",
+                    log=False,
+                )
                 x_candidate = self.local_unobserved_around_best(
                     valid_records=valid_records,
                     observed_keys=observed_keys
                 )
 
             if x_candidate is None:
+                emit_status(
+                    "Local candidate search failed; using a random unexplored point.",
+                    level="WARNING",
+                    stage="candidate",
+                    algorithm="Vanilla Bayesian Optimization",
+                )
                 x_candidate = self.random_unobserved(observed_keys)
+
+            if x_candidate is None:
+                break
 
             candidate_key = self.point_key(x_candidate)
             observed_keys.add(candidate_key)
             self.evaluate_and_store(x_candidate)
+
+            current_valid = [
+                r for r in self.history_records
+                if r["feasible"] and r["aspen_converged"] and np.isfinite(r["objective"])
+            ]
+            best_value = min((r["objective"] for r in current_valid), default=float("inf"))
+            completed = self.n_init + iteration_number
+            emit_status(
+                f"Vanilla BO iteration {iteration_number}/{self.n_iter} completed. "
+                f"Current best objective = {float(best_value):.6g}.",
+                level="PROGRESS",
+                progress=100.0 * completed / total_steps,
+                stage="optimization",
+                current=iteration_number,
+                total=self.n_iter,
+                algorithm="Vanilla Bayesian Optimization",
+            )
 
         valid_records = [
             row for row in self.history_records
@@ -1404,6 +1296,13 @@ class VanillaBOBotorch:
         ]
 
         if len(valid_records) == 0:
+            emit_status(
+                "Vanilla Bayesian Optimization finished without any feasible Aspen-converged point.",
+                level="ERROR",
+                progress=100,
+                stage="finished",
+                algorithm="Vanilla Bayesian Optimization",
+            )
             return {
                 "status": "error",
                 "message": "Vanilla BO terminó, pero ningún punto factible produjo una simulación Aspen convergida.",
@@ -1414,6 +1313,15 @@ class VanillaBOBotorch:
             }, self.history_records
 
         best_record = min(valid_records, key=lambda r: r["objective"])
+
+        emit_status(
+            f"Vanilla Bayesian Optimization finished successfully using {acquisition_name}. "
+            f"Best objective = {float(best_record['objective']):.6g}.",
+            level="SUCCESS",
+            progress=100,
+            stage="finished",
+            algorithm="Vanilla Bayesian Optimization",
+        )
 
         return {
             "status": "success",
